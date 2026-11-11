@@ -3,7 +3,11 @@ name: Alertas Wallapop
 on:
   schedule:
     - cron: '*/10 * * * *'     # cada 10 minutos (GitHub puede retrasarlo unos minutos)
-  workflow_dispatch: {}         # botón "Run workflow" para lanzarlo a mano
+  workflow_dispatch:            # botón "Run workflow" para lanzarlo a mano
+    inputs:
+      prueba:
+        description: 'Mandar un correo de prueba con lo que hay ahora (SI/NO)'
+        default: 'NO'
 
 permissions:
   contents: write               # para guardar vistos.json y no repetir avisos
@@ -24,6 +28,7 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
+          PRUEBA: ${{ github.event.inputs.prueba == 'SI' && '1' || '0' }}
         run: python3 alerta_wallapop.py
       - name: Guardar anuncios ya vistos
         run: |

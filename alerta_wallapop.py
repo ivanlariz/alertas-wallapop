@@ -175,8 +175,8 @@ def tarjeta(a):
             f'<span style="color:#666">{desc}</span>{aviso}</td></tr>')
 
 
-def enviar(avisos):
-    asunto = f'🔔 Wallapop: {len(avisos)} aviso(s) – ' + ', '.join(sorted({a["v"]["busco"] for a in avisos}))[:120]
+def enviar(avisos, prueba=False):
+    asunto = ('[PRUEBA] ' if prueba else '') + f'🔔 Wallapop: {len(avisos)} aviso(s) – ' + ', '.join(sorted({a["v"]["busco"] for a in avisos}))[:120]
     html = ('<p style="font-family:Arial">Anuncios que cumplen tu lista de vigilancia. '
             'Revisa fotos y descripción antes de comprar.</p><table>' + ''.join(tarjeta(a) for a in avisos) +
             '</table><p style="font-family:Arial;color:#999;font-size:12px">Bot de alertas RetrodelNorte. '
@@ -195,7 +195,19 @@ def enviar(avisos):
     print('Correo enviado:', asunto)
 
 
+def prueba():
+    """Correo de prueba: hasta 6 anuncios que cumplen la lista ahora mismo. No toca vistos.json."""
+    avisos = []
+    for v in leer_vigilancia():
+        avisos += [{'it': it, 'v': v} for it in buscar(v) if encaja(v, it)][:2]
+    print(f'PRUEBA: {len(avisos)} anuncios encontrados')
+    if avisos:
+        enviar(avisos[:6], prueba=True)
+
+
 def main():
+    if os.environ.get('PRUEBA') == '1':
+        return prueba()
     vistos = json.load(open(VISTOS)) if os.path.exists(VISTOS) else {}
     primera = not vistos
     ahora = time.time() * 1000
