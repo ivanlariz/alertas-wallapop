@@ -33,7 +33,9 @@ EXCLUIR_SIEMPRE = ['repro', 'reproduccion', 'replica', 'copia', 'no original', '
                    'averiad', 'para piezas', 'piezas', 'reparar', 'roto', 'rota', 'busco', 'compro',
                    'cambio por', 'solo caja', 'caja vacia', 'sin cartucho', 'r4', 'funda', 'carcasa',
                    'protector', 'cargador', 'fuera de la app', 'baneada', 'baneado', 'ban',
-                   'solo mando', 'solo el mando', 'sin consola', 'alquiler', 'alquilo']
+                   'solo mando', 'solo el mando', 'sin consola', 'alquiler', 'alquilo',
+                   'no carga', 'no lee', 'sin joystick', 'se apaga', 'defecto', 'defectuosa', 'averia', 'falla', 'icloud',
+                   'bloqueada', 'bloqueado', 'pantalla rota', 'para reparar']
 
 
 def nn(s):
