@@ -188,7 +188,7 @@ def enviar(avisos, prueba=False):
             print('  ', a['it']['price']['amount'], a['it']['title'], 'https://es.wallapop.com/item/' + a['it']['web_slug'])
         return
     m = MIMEText(html, 'html', 'utf-8')
-    m['Subject'], m['From'], m['To'], m['Date'] = asunto, user, os.environ.get('ALERT_TO', user), formatdate()
+    m['Subject'], m['From'], m['To'], m['Date'] = asunto, user, (os.environ.get('ALERT_TO') or user), formatdate()
     with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as s:
         s.login(user, pwd)
         s.send_message(m)
