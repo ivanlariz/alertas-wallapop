@@ -8,7 +8,7 @@ Cada vez que se ejecuta (GitHub Actions lo lanza cada 10 minutos):
   4. Guarda en vistos.json lo ya avisado para no repetir.
 
 Variables de entorno:
-  WATCHLIST_CSV_URL   enlace CSV de la hoja de vigilancia (si falta, usa watchlist.csv)
+  WATCHLIST_CSV_URL   enlace CSV de la hoja de vigilancia (por defecto, HOJA_CSV)
   GMAIL_USER          cuenta Gmail que envía el aviso
   GMAIL_APP_PASSWORD  contraseña de aplicación de esa cuenta (secreto de GitHub)
   ALERT_TO            destinatario (por defecto, el mismo GMAIL_USER)
@@ -23,6 +23,9 @@ AQUI = os.path.dirname(os.path.abspath(__file__))
 VISTOS = os.path.join(AQUI, 'vistos.json')
 H = {'X-DeviceOS': '0', 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'}
 LAT, LON = 40.4168, -3.7038          # centro de España: Wallapop exige coordenadas; con envío da igual
+# Hoja "Alertas Wallapop RetrodelNorte", pestaña Vigilancia, publicada como CSV
+HOJA_CSV = ('https://docs.google.com/spreadsheets/d/e/2PACX-1vS7XKyB2snAKjoa70AH0m5twsE7cwms92L6kPMNKzXddXrK73F9EMhVpy37Fp39iLEUV8ti12jo5Avh'
+            '/pub?gid=0&single=true&output=csv')
 VENTANA = float(os.environ.get('VENTANA_HORAS', '3'))
 
 # Palabras que descartan un anuncio siempre (además de las de la columna "Excluir")
@@ -65,7 +68,7 @@ def get_json(url):
 
 
 def leer_vigilancia():
-    url = os.environ.get('WATCHLIST_CSV_URL', '').strip()
+    url = os.environ.get('WATCHLIST_CSV_URL', '').strip() or HOJA_CSV
     if url:
         txt = urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'}),
                                      timeout=30).read().decode('utf-8-sig')

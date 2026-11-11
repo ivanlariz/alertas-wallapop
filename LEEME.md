@@ -25,14 +25,14 @@ Funciona gratis en GitHub Actions, con tu ordenador apagado.
    - Si la carpeta `.github` no se sube, créala a mano: *Add file → Create new file*, nombre `.github/workflows/alertas.yml`, y pega el contenido de ese archivo.
 
 ### 4. Guardar las claves en GitHub
-En el repositorio, ve a *Settings → Secrets and variables → Actions → New repository secret* y crea estas cuatro:
+En el repositorio, ve a *Settings → Secrets and variables → Actions → New repository secret* y crea estas dos:
 
 | Nombre | Valor |
 |---|---|
-| `GMAIL_USER` | la cuenta Gmail del paso 1 |
+| `GMAIL_USER` | la cuenta Gmail del paso 1 (los avisos llegan a esa misma cuenta) |
 | `GMAIL_APP_PASSWORD` | el código de 16 letras del paso 1 |
-| `WATCHLIST_CSV_URL` | el enlace CSV del paso 2 |
-| `ALERT_TO` | ivanlariz@gmail.com |
+
+El enlace de la hoja ya va dentro del bot. Opcional: `ALERT_TO` si quieres los avisos en otra dirección.
 
 ### 5. Arrancar
 1. Ve a la pestaña **Actions**, pulsa *Alertas Wallapop* y luego **Run workflow**.
