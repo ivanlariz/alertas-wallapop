@@ -102,7 +102,8 @@ def leer_vigilancia():
                     'grupos': grupos,
                     'excluir': [nn(w).strip() for w in col(f, 'excluir').split(',') if w.strip()],
                     'solo_envio': nn(col(f, 'solo con envio')).strip() in ('si', 's', 'x', '1', 'yes'),
-                    'nota': col(f, 'notas'), 'venta': num(col(f, 'precio de venta'))})
+                    'nota': col(f, 'notas'), 'venta': num(col(f, 'precio de venta')),
+                    'solo_consolas': nn(col(f, 'solo consolas')).strip() in ('si', 's', 'x', '1', 'yes')})
     return out
 
 
@@ -122,6 +123,39 @@ def buscar(v):
     return items
 
 
+INICIO_CONSOLA = re.compile(r' (nintendo|super nintendo|supernintendo|snes|sega|sony|playstation|ps|ps1|ps2|ps3|ps4|ps5|psx|psone|psp|ps vita|psvita|'
+    r'game boy|gameboy|game gear|gamegear|game cube|gamecube|consola|console|consolle|new|neo geo|mega drive|megadrive|master system|'
+    r'dreamcast|saturn|xbox|wii|nes|famicom|atari|commodore|gba|nds|ds|ds lite|dsi|3ds|2ds|n64|asus|rog|lenovo|legion|msi|claw|'
+    r'steam|valve|ayn|anbernic|switch|pack|lote) ')
+
+
+def parece_juego(it):
+    """Juegos o accesorios sueltos subidos con el nombre de la consola (p. ej. «Super Mario World (Super Nintendo)»)."""
+    t, d = nn(it['title']), nn((it.get('description') or '')[:80])
+    if re.search(r' (consola|consolas|console|consolle) ', t):
+        return False
+    if re.match(r' (juego|videojuego|jogo|gioco|cartucho|cartuccia|cartridge) ', t):
+        return True
+    if re.match(r' (videojuego|juego|jogo|cartucho|accesorio|funda|mando) ', d):
+        return True
+    if not INICIO_CONSOLA.match(t) and re.search(r' para |[(]', it['title'].lower()):
+        return True
+    return False
+
+
+CONSOLAS = 10088      # categoría «Consolas» de Wallapop
+NO_CONSOLA_INICIO = re.compile(r' (mando|mandos|controller|cable|cables|cargador|manual|manuales|caja|scatola|lote|lotto|pack|juego|juegos|'
+                               r'videojuego|videojuegos|\d+ juegos|\d+ videojuegos|\d+ giochi|bateria|memory|tarjeta|funda|carcasa|adaptador) ')
+NO_CONSOLA = re.compile(r' (manual de instrucciones|caja vacia|scatola vuota|solo caja|ntsc|ntsc j|jap|japonesa|japones|giapponese|'
+                        r'giapponesa|japan|usa|transfer pak|expansion pak|vmu|repuesto) ')
+
+
+def es_consola(it):
+    ids = {x.get('id') for x in (it.get('taxonomy') or [])}
+    t = nn(it['title'])
+    return CONSOLAS in ids and not NO_CONSOLA_INICIO.match(t) and not NO_CONSOLA.search(t)
+
+
 def encaja(v, it):
     t, td = nn(it['title']), nn(it['title'] + ' ' + (it.get('description') or ''))
     precio = it['price']['amount']
@@ -135,6 +169,10 @@ def encaja(v, it):
         if f' {nn(w).strip()} ' in td:
             return False
     if (it.get('reserved') or {}).get('flag'):
+        return False
+    if parece_juego(it):
+        return False
+    if v.get('solo_consolas') and not es_consola(it):
         return False
     if v['solo_envio'] and not (it.get('shipping') or {}).get('user_allows_shipping'):
         return False
@@ -254,6 +292,9 @@ def main():
             d, r, _ = a['vend']
             if d is not None and d < 15 and not r:      # cuenta recién creada y sin valoraciones: estafa típica
                 print('Descartado por cuenta nueva:', a['it']['title'], d, 'días')
+                continue
+            if not r and a['it']['price']['amount'] >= 250:   # artículos caros: solo vendedores con alguna valoración
+                print('Descartado por vendedor sin valoraciones:', a['it']['title'], a['it']['price']['amount'])
                 continue
             buenos.append(a)
         if buenos:
