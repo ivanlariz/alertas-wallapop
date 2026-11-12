@@ -2,7 +2,7 @@ name: Alertas Wallapop
 
 on:
   schedule:
-    - cron: '*/10 * * * *'     # cada 10 minutos (GitHub puede retrasarlo unos minutos)
+    - cron: '*/10 6-21 * * *'  # cada 10 minutos de 7:00 a 22:59 hora de Madrid (en horario de invierno; en verano de 8:00 a 23:59)
   workflow_dispatch:            # botón "Run workflow" para lanzarlo a mano
     inputs:
       prueba:
@@ -29,7 +29,10 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
           PRUEBA: ${{ github.event.inputs.prueba == 'SI' && '1' || '0' }}
-        run: python3 alerta_wallapop.py
+        run: |
+          # La primera vuelta de la mañana (7:xx en Madrid) mira también lo publicado durante la noche
+          if [ "$(TZ=Europe/Madrid date +%H)" = "07" ]; then export VENTANA_HORAS=9; fi
+          python3 alerta_wallapop.py
       - name: Guardar anuncios ya vistos
         run: |
           git config user.name "bot-alertas"
