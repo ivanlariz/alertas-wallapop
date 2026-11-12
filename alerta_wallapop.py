@@ -145,6 +145,16 @@ def eur(x, dec=2):
     return f'{x:,.{dec}f} €'.replace(',', 'X').replace('.', ',').replace('X', '.')
 
 
+def vendedor(uid):
+    """Antigüedad de la cuenta (días) y nº de valoraciones del vendedor. None si no se puede saber."""
+    u = get_json('https://api.wallapop.com/api/v3/users/' + uid) or {}
+    st = get_json('https://api.wallapop.com/api/v3/users/' + uid + '/stats') or {}
+    reg = u.get('register_date')
+    dias = int((time.time() * 1000 - reg) / 86400000) if reg else None
+    cnt = {c.get('type'): c.get('value') for c in st.get('counters', [])}
+    return dias, cnt.get('reviews'), cnt.get('sells')
+
+
 def tarjeta(a):
     it, v = a['it'], a['v']
     img = ((it.get('images') or [{}])[0].get('urls') or {}).get('medium', '')
@@ -164,6 +174,10 @@ def tarjeta(a):
         alertas.append('sin mando')
     if not (it.get('shipping') or {}).get('user_allows_shipping'):
         alertas.append('solo en mano')
+    if a.get('vend'):
+        d, r, ven = a['vend']
+        if r == 0:
+            alertas.append(f'vendedor sin valoraciones (cuenta de {d} días): paga solo dentro de Wallapop')
     margen = ''
     if v.get('venta'):
         m = v['venta'] - it['price']['amount'] * 1.05 - 5
@@ -203,6 +217,9 @@ def prueba():
     for v in leer_vigilancia():
         avisos += [{'it': it, 'v': v} for it in buscar(v) if encaja(v, it)][:2]
     print(f'PRUEBA: {len(avisos)} anuncios encontrados')
+    for a in avisos:
+        a['vend'] = vendedor(a['it']['user_id'])
+    avisos = [a for a in avisos if not (a['vend'][0] is not None and a['vend'][0] < 15 and not a['vend'][1])]
     if avisos:
         enviar(avisos[:6], prueba=True)
 
@@ -230,8 +247,17 @@ def main():
         time.sleep(0.5)
     print(f'{len(lista)} búsquedas activas, {len(avisos)} avisos' + (' (primera ejecución: solo se memoriza)' if primera else ''))
     if avisos:
-        uniq = {a['it']['id']: a for a in avisos}
-        enviar(list(uniq.values()))
+        uniq = list({a['it']['id']: a for a in avisos}.values())
+        buenos = []
+        for a in uniq:
+            a['vend'] = vendedor(a['it']['user_id'])
+            d, r, _ = a['vend']
+            if d is not None and d < 15 and not r:      # cuenta recién creada y sin valoraciones: estafa típica
+                print('Descartado por cuenta nueva:', a['it']['title'], d, 'días')
+                continue
+            buenos.append(a)
+        if buenos:
+            enviar(buenos)
     if len(vistos) > 20000:                       # recorta la memoria si crece demasiado
         vistos = dict(list(vistos.items())[-15000:])
     json.dump(vistos, open(VISTOS, 'w'), separators=(',', ':'))
