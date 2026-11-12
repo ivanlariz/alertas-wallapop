@@ -31,8 +31,7 @@ VENTANA = float(os.environ.get('VENTANA_HORAS', '3'))
 # Palabras que descartan un anuncio siempre (además de las de la columna "Excluir")
 EXCLUIR_SIEMPRE = ['repro', 'reproduccion', 'replica', 'copia', 'no original', 'no funciona', 'no enciende',
                    'averiad', 'para piezas', 'piezas', 'reparar', 'roto', 'rota', 'busco', 'compro',
-                   'cambio por', 'solo caja', 'caja vacia', 'sin cartucho', 'r4', 'funda', 'carcasa',
-                   'protector', 'cargador', 'fuera de la app', 'baneada', 'baneado', 'ban',
+                   'cambio por', 'solo caja', 'caja vacia', 'sin cartucho', 'r4', 'fuera de la app', 'baneada', 'baneado', 'ban',
                    'solo mando', 'solo el mando', 'sin consola', 'alquiler', 'alquilo',
                    'no carga', 'no lee', 'sin joystick', 'se apaga', 'defecto', 'defectuosa', 'averia', 'falla', 'icloud',
                    'bloqueada', 'bloqueado', 'pantalla rota', 'para reparar',
@@ -165,6 +164,9 @@ def es_consola(it):
     return CONSOLAS in ids and not NO_CONSOLA_INICIO.match(t) and not NO_CONSOLA.search(t)
 
 
+ACCESORIO_INICIO = re.compile(r' (funda|carcasa|protector|protectores|cargador|cable|mando|mandos|dock|base de carga|soporte|estuche|bolsa) ')
+
+
 def encaja(v, it):
     t, td = nn(it['title']), nn(it['title'] + ' ' + (it.get('description') or ''))
     precio = it['price']['amount']
@@ -179,7 +181,7 @@ def encaja(v, it):
             return False
     if (it.get('reserved') or {}).get('flag'):
         return False
-    if parece_juego(it):
+    if parece_juego(it) or ACCESORIO_INICIO.match(t):
         return False
     if v.get('solo_consolas') and not es_consola(it):
         return False
