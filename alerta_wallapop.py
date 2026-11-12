@@ -35,7 +35,16 @@ EXCLUIR_SIEMPRE = ['repro', 'reproduccion', 'replica', 'copia', 'no original', '
                    'protector', 'cargador', 'fuera de la app', 'baneada', 'baneado', 'ban',
                    'solo mando', 'solo el mando', 'sin consola', 'alquiler', 'alquilo',
                    'no carga', 'no lee', 'sin joystick', 'se apaga', 'defecto', 'defectuosa', 'averia', 'falla', 'icloud',
-                   'bloqueada', 'bloqueado', 'pantalla rota', 'para reparar']
+                   'bloqueada', 'bloqueado', 'pantalla rota', 'para reparar',
+                   # averías y defectos (Iván no quiere nada con fallos)
+                   'fallo', 'fallos', 'falla', 'fallan', 'fallando', 'rota', 'rotas', 'rotos', 'roto', 'rompio', 'rompio',
+                   'averia', 'averias', 'averiada', 'averiado', 'estropeada', 'estropeado', 'defectuoso', 'defectos',
+                   'no funciona', 'no funcionan', 'no va', 'no anda', 'no responde', 'no detecta', 'no reconoce',
+                   'no lee', 'no carga', 'no enciende', 'no arranca', 'no da imagen', 'sin imagen', 'sin sonido',
+                   'se apaga', 'se cuelga', 'se reinicia', 'parpadea', 'pixel muerto', 'pixeles muertos',
+                   'mancha', 'manchas', 'raya en la pantalla', 'drift', 'joystick roto', 'boton roto', 'botones rotos',
+                   'bisagra rota', 'tapa rota', 'carcasa rota', 'reparar', 'a reparar', 'reparacion', 'despiece',
+                   'tal cual', 'tal y como esta', 'sin probar', 'no probada', 'no probado', 'sin garantia de funcionamiento']
 
 
 def nn(s):
