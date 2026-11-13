@@ -19,7 +19,7 @@ Sin GMAIL_USER/GMAIL_APP_PASSWORD no envía nada: imprime los avisos (modo prueb
 """
 import csv, io, json, os, re, smtplib, sys, time, unicodedata, urllib.parse, urllib.request
 from email.mime.text import MIMEText
-from email.utils import formatdate
+from email.utils import formatdate, make_msgid
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 VISTOS = os.path.join(AQUI, 'vistos.json')
@@ -430,11 +430,38 @@ def enviar(fichas, asunto, intro, prueba=False):
             print('  ', f['precio'], f['titulo'], f['url'], '→', f['veredicto'])
         return
     m = MIMEText(html, 'html', 'utf-8')
-    m['Subject'], m['From'], m['To'], m['Date'] = asunto, user, (os.environ.get('ALERT_TO') or user), formatdate()
+    dest = os.environ.get('ALERT_TO') or user
+    m['Subject'], m['From'], m['To'], m['Date'] = asunto, user, dest, formatdate()
+    m['Message-ID'] = make_msgid(domain='alertas-wallapop')
     with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=30) as s:
         s.login(user, pwd)
         s.send_message(m)
     print('Correo enviado:', asunto)
+    if dest.lower() == user.lower():
+        etiquetar(user, pwd, m['Message-ID'])
+
+
+def etiquetar(user, pwd, msgid):
+    """Pone la etiqueta «Wallapop» y la marca de importante al correo recién llegado (hace de filtro de Gmail),
+    para activar en el móvil las notificaciones solo de esa etiqueta."""
+    import imaplib
+    try:
+        with imaplib.IMAP4_SSL('imap.gmail.com', 993) as im:
+            im.login(user, pwd)
+            im.create('Wallapop')                     # si ya existe, Gmail responde NO y no pasa nada
+            im.select('INBOX')
+            for _ in range(10):
+                typ, d = im.search(None, 'X-GM-RAW', '"rfc822msgid:' + msgid.strip('<>') + '"')
+                ids = d[0].split() if typ == 'OK' and d and d[0] else []
+                if ids:
+                    for i in ids:
+                        im.store(i, '+X-GM-LABELS', '(Wallapop \\Important)')
+                    print('Etiquetado en Gmail: Wallapop')
+                    return
+                time.sleep(1)
+            print('Aviso: no encontré el correo para etiquetarlo')
+    except Exception as e:
+        print('Aviso: no se pudo etiquetar en Gmail:', e)
 
 
 def consejos():
