@@ -243,6 +243,36 @@ def sospechoso(v, precio):
     return graves >= 3
 
 
+RITMO = json.load(open(os.path.join(AQUI, 'ritmo.json'))) if os.path.exists(os.path.join(AQUI, 'ritmo.json')) else {}
+
+
+def ritmo_venta(it):
+    """Busca en ritmo.json (historial de ventas) el modelo del anuncio y devuelve su resumen."""
+    t = nn(it['title'])
+    full = nn(it['title'] + ' ' + (it.get('description') or ''))
+    caja = 'con caja' if re.search(r' (en su caja|con caja|caja original|en caja|completa|cib) ', full) and not re.search(r' sin caja ', full) else 'suelta'
+    mejor = None
+    for k, r in RITMO.items():
+        m = nn(r['modelo']).strip()
+        if f' {m} ' in t and r['estado'] == caja and (not mejor or len(m) > len(nn(mejor['modelo']))):
+            mejor = r
+    if not mejor or not mejor.get('vendidas'):
+        return ''
+    return f"{mejor['modelo']} ({caja}): {mejor['resumen']}"
+
+
+def interes(vis, fav):
+    """Regla de RetrodelNorte: a buen precio, los favoritos suelen ser ~10 % de las visitas."""
+    if vis < 25:
+        return 'aún pocas visitas para juzgar'
+    p = 100 * fav / vis
+    if p >= 10:
+        return f'{p:.0f} % favoritos/visitas: precio atractivo'
+    if p >= 6:
+        return f'{p:.0f} % favoritos/visitas: interés normal'
+    return f'{p:.0f} % favoritos/visitas: poco interés, el precio no engancha' + (' (muchas visitas)' if vis >= 100 else '')
+
+
 def senales(iid):
     c = get_json('https://api.wallapop.com/api/v3/items/' + iid + '/counters') or {}
     return c.get('views', 0), c.get('favorites', 0), c.get('conversations', 0)
@@ -297,7 +327,7 @@ def ficha_auto(a):
             veredicto = f'OFRECER {eur(oferta, 0)}' + ('' if envio else ' (recogida en mano)')
     else:
         veredicto = 'VERIFICAR antes: pide una foto real con su nombre y paga dentro de Wallapop'
-    ritmo = 'se vende rápido' if conv >= 5 or fav >= 8 else ('ritmo normal' if vis >= 30 else 'recién publicado')
+    ritmo = interes(vis, fav) + ('; muchas conversaciones, se irá rápido' if conv >= 5 else '')
     motivo = (f'BAJADA de {eur(a["antes"], 0)} a {eur(precio, 0)}' if a.get('antes') else f'Nuevo · publicado {hace}')
     return {
         'titulo': it['title'], 'url': 'https://es.wallapop.com/item/' + it['web_slug'],
@@ -310,6 +340,7 @@ def ficha_auto(a):
              + (', con foto' if vd.get('foto') else ', sin foto') + (', DNI verificado' if vd.get('dni') else '')),
             ('Números', numeros + (f' · {v["nota"]}' if v.get('nota') else '')),
             ('Señales', f'{vis} visitas, {fav} favoritos, {conv} conversaciones → {ritmo}'),
+            ('Ritmo', ritmo_venta(it)),
         ],
         'avisos': avisos, 'veredicto': veredicto,
     }
