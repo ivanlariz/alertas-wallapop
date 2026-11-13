@@ -8,6 +8,9 @@ on:
       prueba:
         description: 'Mandar un correo de prueba con lo que hay ahora (SI/NO)'
         default: 'NO'
+      consejos:
+        description: 'Uso interno: fichas revisadas a mano (JSON) para enviarlas con el mismo formato'
+        default: ''
 
 permissions:
   contents: write               # para guardar vistos.json y no repetir avisos
@@ -22,6 +25,12 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
+      - name: Recordar el chat de Telegram
+        uses: actions/cache@v4
+        with:
+          path: .telegram_chat
+          key: telegram-chat-${{ github.run_id }}
+          restore-keys: telegram-chat-
       - name: Buscar en Wallapop y avisar
         env:
           WATCHLIST_CSV_URL: ${{ secrets.WATCHLIST_CSV_URL }}
@@ -29,6 +38,9 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
           PRUEBA: ${{ github.event.inputs.prueba == 'SI' && '1' || '0' }}
+          CONSEJOS: ${{ github.event.inputs.consejos }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           # La primera vuelta de la mañana (7:xx en Madrid) mira también lo publicado durante la noche
           if [ "$(TZ=Europe/Madrid date +%H)" = "07" ]; then export VENTANA_HORAS=9; fi

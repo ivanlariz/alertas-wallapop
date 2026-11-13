@@ -13,6 +13,8 @@ Variables de entorno:
   GMAIL_APP_PASSWORD  contraseña de aplicación de esa cuenta (secreto de GitHub)
   ALERT_TO            destinatario (por defecto, el mismo GMAIL_USER)
   VENTANA_HORAS       solo avisa de anuncios publicados en las últimas N horas (por defecto 3)
+  TELEGRAM_TOKEN      token del bot de Telegram (opcional): si está, los avisos también llegan a Telegram con foto
+  CONSEJOS            JSON con fichas ya revisadas a mano (lo usan las pasadas horarias para enviar con el mismo formato)
 Sin GMAIL_USER/GMAIL_APP_PASSWORD no envía nada: imprime los avisos (modo prueba).
 """
 import csv, io, json, os, re, smtplib, sys, time, unicodedata, urllib.parse, urllib.request
@@ -111,6 +113,7 @@ def leer_vigilancia():
                     'excluir': [nn(w).strip() for w in col(f, 'excluir').split(',') if w.strip()],
                     'solo_envio': nn(col(f, 'solo con envio')).strip() in ('si', 's', 'x', '1', 'yes'),
                     'nota': col(f, 'notas'), 'venta': num(col(f, 'precio de venta')),
+                    'margen_obj': num(col(f, 'margen limpio')),
                     'solo_consolas': nn(col(f, 'solo consolas')).strip() in ('si', 's', 'x', '1', 'yes')})
     return out
 
@@ -195,62 +198,205 @@ def eur(x, dec=2):
 
 
 def vendedor(uid):
-    """Antigüedad de la cuenta (días) y nº de valoraciones del vendedor. None si no se puede saber."""
-    u = get_json('https://api.wallapop.com/api/v3/users/' + uid) or {}
+    """Datos de confianza del vendedor: antigüedad, valoraciones, ventas, denuncias, foto de perfil y verificaciones."""
+    u = get_json('https://api.wallapop.com/api/v3/users/' + uid)
     st = get_json('https://api.wallapop.com/api/v3/users/' + uid + '/stats') or {}
-    reg = u.get('register_date')
-    dias = int((time.time() * 1000 - reg) / 86400000) if reg else None
+    ex = get_json('https://api.wallapop.com/api/v3/users/' + uid + '/extra-info') or {}
+    val = ex.get('validations') or {}
+    reg = (u or {}).get('register_date')
     cnt = {c.get('type'): c.get('value') for c in st.get('counters', [])}
-    return dias, cnt.get('reviews'), cnt.get('sells')
+    v = {'borrado': u is None,
+         'dias': int((time.time() * 1000 - reg) / 86400000) if reg else None,
+         'reviews': cnt.get('reviews') or 0, 'ventas': cnt.get('sells') or 0,
+         'denuncias': cnt.get('reports_received') or 0,
+         'foto': bool((u or {}).get('image')) or bool(val.get('picture')),
+         'dni': bool(val.get('kyc')), 'movil': bool(val.get('mobile'))}
+    rojas = []
+    if v['borrado']:
+        rojas.append('perfil borrado')
+    if v['dias'] is not None and v['dias'] < 30:
+        rojas.append(f'perfil creado hace {v["dias"]} días')
+    if not v['reviews']:
+        rojas.append('sin valoraciones')
+    if not v['foto']:
+        rojas.append('sin foto de perfil')
+    if not v['dni']:
+        rojas.append('identidad sin verificar')
+    if not v['movil']:
+        rojas.append('móvil sin verificar')
+    if v['denuncias'] >= 5:
+        rojas.append(f'{v["denuncias"]} denuncias')
+    v['rojas'] = rojas
+    return v
 
 
-def tarjeta(a):
+def sospechoso(v, precio):
+    """True si el perfil tiene pinta de estafa y no merece aviso."""
+    if v['borrado']:
+        return True
+    nuevo = v['dias'] is not None and v['dias'] < 30
+    if nuevo and not v['reviews']:
+        return True                                    # cuenta recién creada sin valoraciones
+    if not v['reviews'] and precio >= 250:
+        return True                                    # artículos caros: solo vendedores con alguna valoración
+    graves = sum([nuevo, not v['reviews'], not v['foto'], not v['dni'], v['denuncias'] >= 5])
+    return graves >= 3
+
+
+def senales(iid):
+    c = get_json('https://api.wallapop.com/api/v3/items/' + iid + '/counters') or {}
+    return c.get('views', 0), c.get('favorites', 0), c.get('conversations', 0)
+
+
+def antiguedad(dias):
+    if dias is None:
+        return 'cuenta de antigüedad desconocida'
+    return f'cuenta de {dias} días' if dias < 60 else (f'cuenta de {dias // 30} meses' if dias < 730 else f'cuenta de {dias // 365} años')
+
+
+def ficha_auto(a):
+    """Convierte un aviso automático en una ficha con consejo (vendedor, señales, números y veredicto)."""
     it, v = a['it'], a['v']
-    img = ((it.get('images') or [{}])[0].get('urls') or {}).get('medium', '')
-    url = 'https://es.wallapop.com/item/' + it['web_slug']
-    envio = 'con envío' if (it.get('shipping') or {}).get('user_allows_shipping') else 'solo en mano'
+    precio = it['price']['amount']
+    envio = bool((it.get('shipping') or {}).get('user_allows_shipping'))
     hace = int((time.time() * 1000 - it['created_at']) / 60000)
     hace = f'hace {hace} min' if hace < 120 else f'hace {hace // 60} h'
-    motivo = (f'<b style="color:#c0392b">BAJADA de {eur(a["antes"], 0)} a {eur(it["price"]["amount"], 0)}</b>'
-              if a.get('antes') else f'Nuevo · publicado {hace}')
-    desc = (it.get('description') or '').replace('\n', ' ')[:220]
-    alertas = []
+    vd = a.get('vend') or {'dias': None, 'reviews': 0, 'ventas': 0, 'denuncias': 0, 'rojas': []}
+    d, r, ven, den = vd['dias'], vd['reviews'], vd['ventas'], vd['denuncias']
+    vis, fav, conv = senales(it['id'])
+    avisos = []
     slug = set(nn(re.sub(r'-\d+$', '', it['web_slug'])).split())
     tit = {w for w in nn(it['title']).split() if len(w) > 2}
     if tit and not slug & tit:
-        alertas.append('anuncio reutilizado (el enlace es de otro producto): posible estafa')
+        avisos.append('anuncio reutilizado (el enlace es de otro producto): posible estafa')
     if re.search(r' sin mando', nn(it['title'] + ' ' + (it.get('description') or ''))):
-        alertas.append('sin mando')
-    if not (it.get('shipping') or {}).get('user_allows_shipping'):
-        alertas.append('solo en mano')
-    if a.get('vend'):
-        d, r, ven = a['vend']
-        if r == 0:
-            alertas.append(f'vendedor sin valoraciones (cuenta de {d} días): paga solo dentro de Wallapop')
-    margen = ''
-    if v.get('venta'):
-        m = v['venta'] - it['price']['amount'] * 1.05 - 5
-        margen = f' <span style="color:#27ae60">(margen limpio ~{eur(m, 0)} vendiendo a {eur(v["venta"], 0)})</span>'
-    aviso = ('<br><b style="color:#d35400">⚠️ ' + ' · '.join(alertas) + '</b>') if alertas else ''
-    return (f'<tr><td style="padding:8px;vertical-align:top"><a href="{url}"><img src="{img}" width="120"></a></td>'
-            f'<td style="padding:8px;vertical-align:top;font-family:Arial;font-size:14px">'
-            f'<a href="{url}" style="font-size:16px"><b>{it["title"]}</b></a><br>'
-            f'<b style="font-size:18px">{eur(it["price"]["amount"])}</b>{margen} · {envio} · {(it.get("location") or {}).get("city", "")}<br>'
-            f'{motivo} · alerta «{v["busco"]}» ≤ {eur(v["max"], 0)}' + (f' · {v["nota"]}' if v.get('nota') else '') + '<br>'
-            f'<span style="color:#666">{desc}</span>{aviso}</td></tr>')
+        avisos.append('no incluye mando')
+    if not envio:
+        avisos.append('solo entrega en mano')
+    if vd.get('rojas'):
+        avisos.append('perfil: ' + ', '.join(vd['rojas']) + ' → paga solo dentro de Wallapop')
+    coste = precio * 1.05 + 5 if envio else precio
+    venta, margen = v.get('venta'), None
+    numeros = f'Coste ~{eur(coste, 0)}' + (' (con envío y protección)' if envio else ' (en mano)')
+    if venta:
+        margen = venta - coste
+        if 'no incluye mando' in avisos and venta >= 250:
+            margen -= 50
+            numeros += ' + ~50 € de mando'
+        numeros += f' · venta ~{eur(venta, 0)} · <b>margen ~{eur(margen, 0)}</b>'
+    # Veredicto automático
+    objetivo = v.get('margen_obj') or 25
+    fiable = (r or 0) >= 3 and den < 5 and len(vd.get('rojas', [])) <= 1
+    if margen is not None and margen >= objetivo and fiable:
+        veredicto = 'COMPRAR' + (' rápido' if conv >= 5 else '') + ('' if envio else ' (recogida en mano)')
+    elif margen is not None and (r or 0) >= 1 and den < 5 and margen >= objetivo * 0.6:
+        oferta = int((precio - max(0, objetivo - margen)) // 5 * 5)
+        if oferta >= precio:
+            veredicto = 'COMPRAR, pagando dentro de Wallapop (vendedor con poco historial)'
+        else:
+            veredicto = f'OFRECER {eur(oferta, 0)}' + ('' if envio else ' (recogida en mano)')
+    else:
+        veredicto = 'VERIFICAR antes: pide una foto real con su nombre y paga dentro de Wallapop'
+    ritmo = 'se vende rápido' if conv >= 5 or fav >= 8 else ('ritmo normal' if vis >= 30 else 'recién publicado')
+    motivo = (f'BAJADA de {eur(a["antes"], 0)} a {eur(precio, 0)}' if a.get('antes') else f'Nuevo · publicado {hace}')
+    return {
+        'titulo': it['title'], 'url': 'https://es.wallapop.com/item/' + it['web_slug'],
+        'img': ((it.get('images') or [{}])[0].get('urls') or {}).get('medium', ''),
+        'precio': precio, 'envio': envio, 'ciudad': (it.get('location') or {}).get('city', ''),
+        'cabecera': f'{motivo} · alerta «{v["busco"]}» ≤ {eur(v["max"], 0)}',
+        'lineas': [
+            ('Anuncio', (it.get('description') or '').replace('\n', ' ')[:220]),
+            ('Vendedor', f'{antiguedad(d)}, {r or 0} valoraciones, {ven or 0} ventas' + (f', {den} denuncias' if den else ', sin denuncias')
+             + (', con foto' if vd.get('foto') else ', sin foto') + (', DNI verificado' if vd.get('dni') else '')),
+            ('Números', numeros + (f' · {v["nota"]}' if v.get('nota') else '')),
+            ('Señales', f'{vis} visitas, {fav} favoritos, {conv} conversaciones → {ritmo}'),
+        ],
+        'avisos': avisos, 'veredicto': veredicto,
+    }
 
 
-def enviar(avisos, prueba=False):
-    asunto = ('[PRUEBA] ' if prueba else '') + f'🔔 Wallapop: {len(avisos)} aviso(s) – ' + ', '.join(sorted({a["v"]["busco"] for a in avisos}))[:120]
-    html = ('<p style="font-family:Arial">Anuncios que cumplen tu lista de vigilancia. '
-            'Revisa fotos y descripción antes de comprar.</p><table>' + ''.join(tarjeta(a) for a in avisos) +
+def ficha_html(f):
+    lineas = ''.join(f'<b>{k}:</b> {t}<br>' for k, t in f['lineas'] if t)
+    avisos = ('<b style="color:#d35400">⚠️ ' + ' · '.join(f['avisos']) + '</b><br>') if f.get('avisos') else ''
+    color = '#27ae60' if f['veredicto'].upper().startswith('COMPRAR') else ('#2471a3' if f['veredicto'].upper().startswith('OFRECER') else '#d35400')
+    return (f'<tr><td style="padding:10px;vertical-align:top;width:170px"><a href="{f["url"]}"><img src="{f["img"]}" width="160" style="border-radius:6px"></a></td>'
+            f'<td style="padding:10px;vertical-align:top;font-family:Arial;font-size:14px;line-height:1.45">'
+            f'<a href="{f["url"]}" style="font-size:16px"><b>{f["titulo"]}</b></a><br>'
+            f'<b style="font-size:19px">{eur(f["precio"])}</b> · {"con envío" if f["envio"] else "solo en mano"} · {f["ciudad"]}<br>'
+            f'<span style="color:#555">{f["cabecera"]}</span><br>{lineas}{avisos}'
+            f'<span style="display:inline-block;margin-top:4px;padding:3px 8px;border-radius:4px;background:{color};color:#fff"><b>{f["veredicto"]}</b></span>'
+            f'</td></tr>')
+
+
+def ficha_telegram(f):
+    import html as _h
+    lineas = '\n'.join(f'<b>{k}:</b> {_h.escape(re.sub("<[^>]+>", "", t))}' for k, t in f['lineas'] if t and k != 'Anuncio')
+    avisos = ('\n⚠️ ' + _h.escape(' · '.join(f['avisos']))) if f.get('avisos') else ''
+    cabeza = (f'<b>{_h.escape(f["titulo"])}</b>\n💶 <b>{eur(f["precio"])}</b> · {"con envío" if f["envio"] else "solo en mano"} · {_h.escape(f["ciudad"])}\n'
+              f'👉 <b>{_h.escape(f["veredicto"])}</b> · <a href="{f["url"]}">Abrir en Wallapop</a>\n')
+    cuerpo = f'{_h.escape(f["cabecera"])}\n{lineas}{avisos}'
+    hueco = 1020 - len(cabeza)
+    if len(cuerpo) > hueco:                      # recorta sin dejar etiquetas abiertas
+        cuerpo = re.sub(r'<[^>]*$', '', cuerpo[:hueco - 1]) + '…'
+        cuerpo = re.sub(r'<b>([^<]*)$', r'\1', cuerpo)
+    return cabeza + cuerpo
+
+
+def telegram_chat(token):
+    """Chat de Telegram al que mandar: TELEGRAM_CHAT_ID, el guardado en .telegram_chat o el último que escribió al bot."""
+    chat = os.environ.get('TELEGRAM_CHAT_ID', '').strip()
+    fichero = os.path.join(AQUI, '.telegram_chat')
+    if not chat and os.path.exists(fichero):
+        chat = open(fichero).read().strip()
+    if not chat:
+        d = get_json(f'https://api.telegram.org/bot{token}/getUpdates') or {}
+        for u in reversed(d.get('result', [])):
+            m = u.get('message') or u.get('edited_message') or {}
+            if m.get('chat', {}).get('id'):
+                chat = str(m['chat']['id'])
+                break
+        if chat:
+            open(fichero, 'w').write(chat)
+    return chat
+
+
+def enviar_telegram(fichas, cabecera):
+    token = os.environ.get('TELEGRAM_TOKEN', '').strip()
+    if not token:
+        return
+    chat = telegram_chat(token)
+    if not chat:
+        print('Telegram: no hay chat; escribe algo al bot desde Telegram para activarlo')
+        return
+    def post(metodo, datos):
+        req = urllib.request.Request(f'https://api.telegram.org/bot{token}/{metodo}',
+                                     data=urllib.parse.urlencode(datos).encode(), method='POST')
+        try:
+            return json.load(urllib.request.urlopen(req, timeout=30))
+        except Exception as e:
+            print('Telegram error', metodo, e)
+    post('sendMessage', {'chat_id': chat, 'text': cabecera, 'parse_mode': 'HTML', 'disable_web_page_preview': 'true'})
+    for f in fichas:
+        r = None
+        if f.get('img'):
+            r = post('sendPhoto', {'chat_id': chat, 'photo': f['img'], 'caption': ficha_telegram(f), 'parse_mode': 'HTML'})
+        if not r or not r.get('ok'):
+            post('sendMessage', {'chat_id': chat, 'text': ficha_telegram(f), 'parse_mode': 'HTML'})
+        time.sleep(0.4)
+    print('Telegram enviado:', len(fichas), 'avisos')
+
+
+def enviar(fichas, asunto, intro, prueba=False):
+    asunto = ('[PRUEBA] ' if prueba else '') + asunto
+    html = (f'<p style="font-family:Arial;font-size:14px">{intro}</p><table>' + ''.join(ficha_html(f) for f in fichas) +
             '</table><p style="font-family:Arial;color:#999;font-size:12px">Bot de alertas RetrodelNorte. '
-            'Edita la hoja de vigilancia para añadir o quitar productos.</p>')
+            'Edita la hoja de vigilancia para añadir o quitar productos. Antes de pagar, revisa fotos y descripción.</p>')
+    enviar_telegram(fichas, f'<b>{asunto}</b>')
     user, pwd = os.environ.get('GMAIL_USER'), os.environ.get('GMAIL_APP_PASSWORD')
     if not (user and pwd):
         print('[modo prueba, sin correo]', asunto)
-        for a in avisos:
-            print('  ', a['it']['price']['amount'], a['it']['title'], 'https://es.wallapop.com/item/' + a['it']['web_slug'])
+        for f in fichas:
+            print('  ', f['precio'], f['titulo'], f['url'], '→', f['veredicto'])
         return
     m = MIMEText(html, 'html', 'utf-8')
     m['Subject'], m['From'], m['To'], m['Date'] = asunto, user, (os.environ.get('ALERT_TO') or user), formatdate()
@@ -258,6 +404,19 @@ def enviar(avisos, prueba=False):
         s.login(user, pwd)
         s.send_message(m)
     print('Correo enviado:', asunto)
+
+
+def consejos():
+    """Revisión hecha a mano (pasadas horarias): llega como JSON en CONSEJOS y se envía con el mismo formato."""
+    datos = json.loads(os.environ['CONSEJOS'])
+    fichas = []
+    for c in datos.get('fichas', []):
+        fichas.append({'titulo': c['titulo'], 'url': c['url'], 'img': c.get('img', ''), 'precio': float(c['precio']),
+                       'envio': bool(c.get('envio')), 'ciudad': c.get('ciudad', ''), 'cabecera': c.get('cabecera', ''),
+                       'lineas': [tuple(x) for x in c.get('lineas', [])], 'avisos': c.get('avisos', []),
+                       'veredicto': c.get('veredicto', '')})
+    if fichas:
+        enviar(fichas, datos.get('asunto', 'Chollos Wallapop RetrodelNorte'), datos.get('intro', ''))
 
 
 def prueba():
@@ -268,12 +427,15 @@ def prueba():
     print(f'PRUEBA: {len(avisos)} anuncios encontrados')
     for a in avisos:
         a['vend'] = vendedor(a['it']['user_id'])
-    avisos = [a for a in avisos if not (a['vend'][0] is not None and a['vend'][0] < 15 and not a['vend'][1])]
+    avisos = [a for a in avisos if not sospechoso(a['vend'], a['it']['price']['amount'])]
     if avisos:
-        enviar(avisos[:6], prueba=True)
+        fichas = [ficha_auto(a) for a in avisos[:6]]
+        enviar(fichas, f'🔔 Wallapop: {len(fichas)} aviso(s)', 'Anuncios que cumplen ahora mismo tu lista de vigilancia.', prueba=True)
 
 
 def main():
+    if os.environ.get('CONSEJOS', '').strip():
+        return consejos()
     if os.environ.get('PRUEBA') == '1':
         return prueba()
     vistos = json.load(open(VISTOS)) if os.path.exists(VISTOS) else {}
@@ -300,16 +462,15 @@ def main():
         buenos = []
         for a in uniq:
             a['vend'] = vendedor(a['it']['user_id'])
-            d, r, _ = a['vend']
-            if d is not None and d < 15 and not r:      # cuenta recién creada y sin valoraciones: estafa típica
-                print('Descartado por cuenta nueva:', a['it']['title'], d, 'días')
-                continue
-            if not r and a['it']['price']['amount'] >= 250:   # artículos caros: solo vendedores con alguna valoración
-                print('Descartado por vendedor sin valoraciones:', a['it']['title'], a['it']['price']['amount'])
+            if sospechoso(a['vend'], a['it']['price']['amount']):
+                print('Descartado por perfil sospechoso:', a['it']['title'], a['vend']['rojas'])
                 continue
             buenos.append(a)
         if buenos:
-            enviar(buenos)
+            fichas = [ficha_auto(a) for a in buenos]
+            nombres = ', '.join(sorted({a['v']['busco'] for a in buenos}))[:110]
+            enviar(fichas, f'🔔 Wallapop: {len(fichas)} aviso(s) – {nombres}',
+                   'Anuncios recién subidos (o rebajados) que cumplen tu lista de vigilancia, con mi valoración.')
     if len(vistos) > 20000:                       # recorta la memoria si crece demasiado
         vistos = dict(list(vistos.items())[-15000:])
     json.dump(vistos, open(VISTOS, 'w'), separators=(',', ':'))

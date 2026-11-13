@@ -45,3 +45,13 @@ El enlace de la hoja ya va dentro del bot. Opcional: `ALERT_TO` si quieres los a
 - **Debe contener:** grupos separados por comas que tienen que aparecer todos en el título. Dentro de un grupo, las alternativas van con `/`. Ejemplo: `ps5/playstation 5, slim`.
 - **Excluir:** palabras que descartan el anuncio. Además, siempre se descartan repros, rotos, piezas, consolas baneadas, «busco/compro» y accesorios sueltos.
 - **Pararlo:** en *Actions → Alertas Wallapop → ⋯ → Disable workflow*.
+
+## Avisos por Telegram (opcional, recomendado)
+1. En Telegram, habla con **@BotFather**, escribe `/newbot` y ponle un nombre. Te dará un **token**.
+2. Abre tu bot nuevo y escríbele cualquier cosa («hola»).
+3. En GitHub, *Settings → Secrets and variables → Actions → New repository secret*: nombre `TELEGRAM_TOKEN`, valor el token.
+Desde la siguiente vuelta, cada aviso te llega también a Telegram con foto, precio, margen, datos del vendedor y veredicto.
+
+## Filtro de vendedores
+Se descartan perfiles con pinta de estafa: borrados, creados hace menos de 30 días sin valoraciones, sin valoraciones en artículos de 250 € o más,
+o con 3 o más señales graves (cuenta nueva, sin valoraciones, sin foto de perfil, identidad sin verificar, 5 o más denuncias).
