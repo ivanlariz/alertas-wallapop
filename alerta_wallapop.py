@@ -597,6 +597,9 @@ def prueba():
     for a in avisos:
         a['vend'] = vendedor(a['it']['user_id'])
     avisos = [a for a in avisos if not sospechoso(a['vend'], a['it']['price']['amount'])]
+    for a in avisos[:6]:                # prueba también el análisis de fotos (si hay clave de Anthropic)
+        a['fotos'] = analizar_fotos(a['it'])
+        print('Fotos:', a['it']['title'][:50], '->', json.dumps(a['fotos'], ensure_ascii=False) if a['fotos'] else 'sin análisis')
     if avisos:
         fichas = [ficha_auto(a) for a in avisos[:6]]
         enviar(fichas, f'🔔 Wallapop: {len(fichas)} aviso(s)', 'Anuncios que cumplen ahora mismo tu lista de vigilancia.', prueba=True)
