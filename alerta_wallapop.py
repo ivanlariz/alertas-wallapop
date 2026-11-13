@@ -28,6 +28,7 @@ LAT, LON = 40.4168, -3.7038          # Madrid, donde vive Iván (Wallapop exige 
 # Hoja "Alertas Wallapop RetrodelNorte", pestaña Vigilancia, publicada como CSV
 HOJA_CSV = ('https://docs.google.com/spreadsheets/d/e/2PACX-1vS7XKyB2snAKjoa70AH0m5twsE7cwms92L6kPMNKzXddXrK73F9EMhVpy37Fp39iLEUV8ti12jo5Avh'
             '/pub?gid=0&single=true&output=csv')
+MODO_RETRO = True                    # True: solo retro completo PAL España (ver retro.py); False: hoja de vigilancia
 VENTANA = float(os.environ.get('VENTANA_HORAS', '3'))
 
 # Palabras que descartan un anuncio siempre (además de las de la columna "Excluir")
@@ -569,7 +570,17 @@ def consejos():
 def prueba():
     """Correo de prueba: hasta 6 anuncios que cumplen la lista ahora mismo. No toca vistos.json."""
     avisos = []
-    for v in leer_vigilancia():
+    if MODO_RETRO:                      # en modo retro: lo mejor de lo publicado ahora, aunque no llegue al margen
+        import retro
+        for tipo, it in retro.buscar_nuevos(get_json, LAT, LON):
+            motivo, d = retro.valorar(tipo, it, get_json, nn, LAT, LON, margen_min=-999)
+            if d:
+                r = d['ref']
+                avisos.append({'it': it, 'v': {'busco': d['etiqueta'], 'max': d['max'], 'venta': d['venta'], 'margen_obj': 15,
+                               'nota': f"referencia: {r['n']} anuncios completos (mediana {eur(r['mediana'], 0)})"}})
+            if len(avisos) >= 4:
+                break
+    for v in ([] if MODO_RETRO else leer_vigilancia()):
         avisos += [{'it': it, 'v': v} for it in buscar(v) if encaja(v, it)][:2]
     print(f'PRUEBA: {len(avisos)} anuncios encontrados')
     for a in avisos:
@@ -589,7 +600,30 @@ def main():
     primera = not vistos
     ahora = time.time() * 1000
     avisos = []
-    lista = leer_vigilancia()
+    # MODO RETRO: juegos y consolas de Mega Drive, Super Nintendo, Game Boy, GBA, PS1 y PS2, completos y PAL España.
+    # La hoja de vigilancia (PS5, Switch 2, portátiles…) queda en pausa mientras MODO_RETRO sea True.
+    lista = [] if MODO_RETRO else leer_vigilancia()
+    if MODO_RETRO:
+        import retro
+        nuevos = retro.buscar_nuevos(get_json, LAT, LON)
+        for tipo, it in nuevos:
+            iid, precio = it['id'], it['price']['amount']
+            antes = vistos.get(iid)
+            reciente = ahora - it['created_at'] < VENTANA * 3600 * 1000
+            nuevo = antes is None and reciente and not primera
+            bajada = antes is not None and precio < antes - 0.5 and not primera
+            vistos[iid] = precio
+            if not (nuevo or bajada):
+                continue
+            motivo, d = retro.valorar(tipo, it, get_json, nn, LAT, LON)
+            if not d:
+                continue
+            r = d['ref']
+            v = {'busco': d['etiqueta'], 'max': d['max'], 'venta': d['venta'], 'margen_obj': d['objetivo'],
+                 'nota': f"referencia: {r['n']} anuncios completos en Wallapop (mediana {eur(r['mediana'], 0)}, "
+                         f"más barato {eur(r['min'], 0)}); venta estimada {eur(d['venta'], 0)}"}
+            avisos.append({'it': it, 'v': v, 'antes': antes} if bajada else {'it': it, 'v': v})
+        print(f'Modo retro: {len(nuevos)} anuncios mirados')
     for v in lista:
         for it in buscar(v):
             if not encaja(v, it):
@@ -621,7 +655,7 @@ def main():
             fichas = [ficha_auto(a) for a in buenos]
             nombres = ', '.join(sorted({a['v']['busco'] for a in buenos}))[:110]
             enviar(fichas, f'🔔 Wallapop: {len(fichas)} aviso(s) – {nombres}',
-                   'Anuncios recién subidos (o rebajados) que cumplen tu lista de vigilancia, con mi valoración.')
+                   ('Retro completo PAL España recién subido (o rebajado) por debajo de su precio de mercado, con mi valoración.' if MODO_RETRO else 'Anuncios recién subidos (o rebajados) que cumplen tu lista de vigilancia, con mi valoración.'))
     if len(vistos) > 20000:                       # recorta la memoria si crece demasiado
         vistos = dict(list(vistos.items())[-15000:])
     json.dump(vistos, open(VISTOS, 'w'), separators=(',', ':'))
