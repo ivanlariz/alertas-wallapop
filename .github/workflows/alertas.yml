@@ -19,7 +19,7 @@ permissions:
 
 concurrency:
   # un solo bucle a la vez; las pruebas y las fichas revisadas a mano van aparte y salen al momento
-  group: ${{ github.event_name == 'schedule' && 'alertas-bucle' || format('alertas-{0}', github.run_id) }}
+  group: ${{ (github.event_name == 'schedule' || (github.event.inputs.prueba != 'SI' && github.event.inputs.consejos == '')) && 'alertas-bucle' || format('alertas-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
@@ -44,7 +44,7 @@ jobs:
           CONSEJOS: ${{ github.event.inputs.consejos }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          BUCLE: ${{ github.event_name == 'schedule' && '1' || '0' }}
+          BUCLE: ${{ (github.event_name == 'schedule' || (github.event.inputs.prueba != 'SI' && github.event.inputs.consejos == '')) && '1' || '0' }}
         run: |
           git config user.name "bot-alertas"
           git config user.email "bot-alertas@users.noreply.github.com"
