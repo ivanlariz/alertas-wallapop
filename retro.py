@@ -135,8 +135,11 @@ def referencia(it, tipo, plat, claves, consulta, get_json, nn, lat, lon, modelo=
             continue
         precios.append(c['price']['amount'])
         ejemplos.append((c['price']['amount'], c['title'][:60]))
-    if len(precios) < 3:
+    if len(precios) < 2:
         return None
+    if len(precios) == 2:                       # solo 2 comparables: referencia prudente = el más barato
+        return {'venta': min(precios), 'n': 2, 'mediana': round(statistics.median(precios), 2),
+                'min': min(precios), 'ejemplos': sorted(ejemplos)[:3]}
     med = statistics.median(precios)
     ejemplos = [e for e in ejemplos if med / 3 <= e[0] <= med * 3]       # fuera precios absurdos
     precios = [e[0] for e in ejemplos]
@@ -158,6 +161,31 @@ def buscar_nuevos(get_json, lat, lon):
             if it['id'] not in vistos:
                 vistos.add(it['id'])
                 out.append((tipo, it))
+        time.sleep(0.4)
+    return out
+
+
+def buscar_stock(get_json, lat, lon, paginas=5):
+    """Anuncios YA publicados (no solo los nuevos): búsquedas de completos por plataforma, varias páginas."""
+    vistos, out = set(), []
+    tareas = [(JUEGOS, f'{q} {extra}') for _, _, _, qs in PLATAFORMAS for q in qs[:1] for extra in ('completo', 'pal esp')]
+    tareas += [(CONSOLAS, m[2] + ' completa') for m in CONSOLAS_MODELOS]
+    for tipo, q in tareas:
+        p = {'keywords': q, 'latitude': lat, 'longitude': lon, 'source': 'search_box', 'category_ids': '24200',
+             'subcategory_ids': tipo, 'min_sale_price': 8, 'max_sale_price': 800}
+        d = get_json('https://api.wallapop.com/api/v3/search?' + urllib.parse.urlencode(p))
+        for _ in range(paginas):
+            if not d:
+                break
+            for it in d['data']['section']['payload']['items']:
+                if it['id'] not in vistos:
+                    vistos.add(it['id'])
+                    out.append((tipo, it))
+            nxt = (d.get('meta') or {}).get('next_page')
+            if not nxt:
+                break
+            time.sleep(0.4)
+            d = get_json('https://api.wallapop.com/api/v3/search?' + urllib.parse.urlencode({'next_page': nxt}))
         time.sleep(0.4)
     return out
 
