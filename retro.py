@@ -162,7 +162,7 @@ def buscar_nuevos(get_json, lat, lon):
     return out
 
 
-def valorar(tipo, it, get_json, nn, lat, lon, margen_min=15, estricto_esp=True):
+def valorar(tipo, it, get_json, nn, lat, lon, margen_min=15, estricto_esp=True, requiere_completo=True):
     """Devuelve (motivo_descartado, None) o (None, datos del aviso)."""
     raw = it['title'] + ' ' + (it.get('description') or '')
     t, full = nn(it['title']), nn(raw)
@@ -178,10 +178,9 @@ def valorar(tipo, it, get_json, nn, lat, lon, margen_min=15, estricto_esp=True):
         return 'sin plataforma retro', None
     if re.search(INCOMPLETO, full):
         return 'incompleto', None
-    if tipo == JUEGOS and not re.search(COMPLETO, full):
-        return 'no dice completo', None
-    if tipo == CONSOLAS and not re.search(CAJA_CONSOLA, full):
-        return 'consola sin caja', None
+    dice_completo = bool(re.search(COMPLETO if tipo == JUEGOS else CAJA_CONSOLA, full))
+    if not dice_completo and (requiere_completo or len(it.get('images') or []) < 3):
+        return ('no dice completo' if tipo == JUEGOS else 'consola sin caja'), None
     esp = es_espanol(raw, full)
     if not esp and (estricto_esp or re.search(ESP_NO, re.sub(QUITAR_ESP, ' ', full)) or re.search(EUR, re.sub(QUITAR_ESP, ' ', full))):
         return 'no consta PAL España', None
@@ -207,5 +206,5 @@ def valorar(tipo, it, get_json, nn, lat, lon, margen_min=15, estricto_esp=True):
     objetivo = margen_min if margen_min < 0 else max(margen_min, round(coste * 0.3))
     if margen < objetivo:
         return f'margen {margen:.0f} € < {objetivo} €', None
-    return None, {'esp_confirmado': esp, 'margen': round(margen, 2), 'plataforma': nombre, 'etiqueta': etiqueta, 'ref': ref, 'venta': round(venta, 2),
+    return None, {'dice_completo': dice_completo, 'esp_confirmado': esp, 'margen': round(margen, 2), 'plataforma': nombre, 'etiqueta': etiqueta, 'ref': ref, 'venta': round(venta, 2),
                   'objetivo': objetivo, 'max': round(((venta - objetivo) - 5) / 1.05, 2)}
