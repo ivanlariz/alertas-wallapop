@@ -1,5 +1,6 @@
-"""Vigilancia retro de RetrodelNorte: juegos y consolas de Mega Drive, Super Nintendo, Game Boy, Game Boy Advance,
-PS1 y PS2, solo COMPLETOS y PAL ESPAÑA.
+"""Vigilancia retro de RetrodelNorte: juegos de Mega Drive, Super Nintendo, Saturn, Game Boy, Game Boy Advance, PS1 y PS2
+y consolas PORTÁTILES (Game Boy, Color, Pocket, Advance, Advance SP), solo COMPLETOS (caja e instrucciones) y
+PAL ESPAÑA (o PAL Europa multiidioma con español cuando lo indica el anuncio).
 
 Para cada anuncio nuevo que pasa los filtros busca en Wallapop anuncios comparables (mismo juego o consola, misma
 plataforma, completos y no extranjeros) y usa su precio como referencia de venta. Si el margen limpio compensa,
@@ -16,35 +17,34 @@ PLATAFORMAS = [
     ('gb', 'Game Boy', r' (game ?boy|gameboy|game boy color|gameboy color|gbc|game boy pocket) ', ['game boy', 'gameboy color']),
     ('snes', 'Super Nintendo', r' (super nintendo|snes|super nes) ', ['super nintendo', 'snes']),
     ('md', 'Mega Drive', r' (mega ?drive|megadrive|mega drive ii|mega drive 2) ', ['mega drive', 'megadrive']),
+    ('saturn', 'Saturn', r' (sega saturn|saturn) ', ['sega saturn', 'saturn']),
     ('ps2', 'PS2', r' (ps2|playstation 2|play station 2|play 2) ', ['ps2', 'playstation 2']),
     ('ps1', 'PS1', r' (ps1|psx|psone|ps one|playstation 1|play station 1|playstation one|play 1) ', ['ps1', 'psx playstation']),
 ]
 # Consolas: modelo -> (plataforma, búsqueda, regex del modelo)
+# Consolas: SOLO PORTÁTILES (Iván no quiere cajas grandes de sobremesa). modelo -> (plataforma, búsqueda, regex)
 CONSOLAS_MODELOS = [
-    ('Mega Drive II', 'md', 'consola mega drive 2 caja', r' (mega ?drive (ii|2)|megadrive (ii|2)) '),
-    ('Mega Drive', 'md', 'consola mega drive caja', r' (mega ?drive|megadrive) '),
-    ('Super Nintendo', 'snes', 'consola super nintendo caja', r' (super nintendo|snes) '),
     ('Game Boy Advance SP', 'gba', 'game boy advance sp caja', r' (advance sp|gba sp) '),
     ('Game Boy Advance', 'gba', 'consola game boy advance caja', r' (game ?boy advance|gameboy advance|gba) '),
     ('Game Boy Color', 'gb', 'consola game boy color caja', r' (game ?boy colou?r|gameboy colou?r|gbc) '),
     ('Game Boy Pocket', 'gb', 'game boy pocket caja', r' (game ?boy pocket|gameboy pocket) '),
     ('Game Boy', 'gb', 'consola game boy clasica caja', r' (game ?boy|gameboy|dmg) '),
-    ('PS2 Slim', 'ps2', 'consola ps2 slim caja', r' (ps2|playstation 2) .*slim|slim .*(ps2|playstation 2) '),
-    ('PS2', 'ps2', 'consola playstation 2 caja', r' (ps2|playstation 2) '),
-    ('PSone', 'ps1', 'consola psone caja', r' (psone|ps one) '),
-    ('PS1', 'ps1', 'consola playstation 1 caja', r' (ps1|psx|playstation 1|playstation) '),
 ]
 
 COMPLETO = r' (completo|completa|completos|cib|caja y manual|caja manual|caja e instrucciones|caja instrucciones|con manual|con instrucciones|manual incluido|precintado|precintada|sellado|nuevo a estrenar) '
 INCOMPLETO = (r' (sin manual|sin instrucciones|sin caja|solo cartucho|solo el cartucho|solo disco|solo el disco|solo caja|solo la caja|'
               r'caja vacia|falta el manual|falta manual|no incluye manual|manual no incluido|incompleto|incompleta|loose|suelto|suelta|'
               r'sin folleto|caja repro|caja no original|manual fotocopia|fotocopia) ')
-CAJA_CONSOLA = r' (con caja|en caja|caja original|en su caja|su caja|completa|completo|cib|embalaje original|caja y manual|precintada) '
+CAJA_CONSOLA = (r' (completa|completo|cib|caja y manual|caja manual|caja e instrucciones|caja y instrucciones|caja con instrucciones|'
+                r'con manual|con instrucciones|manual incluido|instrucciones incluidas|precintada|nueva a estrenar) ')
 ESP_SI = (r' (pal esp|pal espana|pal es|pal spain|version espanola|version espana|version esp|edicion espanola|en espanol|'
           r'en castellano|castellano|idioma espanol|textos en espanol|espanol|espanola|esp) ')
 ESP_NO = (r' (pal uk|ukv|uk|fah|fra|frances|francesa|ita|italiano|italiana|aleman|alemana|ger|noe|ntsc|usa|jap|japon|japones|'
-          r'japonesa|famicom|super famicom|scn|holandes|pal eur|eur|euro|europea|portugues|ingles|inglesa|nordic|aus|'
+          r'japonesa|famicom|super famicom|scn|holandes|portugues|ingles|inglesa|nordic|aus|'
           r'genesis|import|importacion|gioco|giochi|scatola|jeu|spiel) ')
+EUR = r' (pal eur|eur|euro|europea|europeo|pal europa|europa) '
+MULTI = (r' (multi ?idioma|multiidioma|multilenguaje|multilingue|multi ?language|varios idiomas|incluye espanol|espanol incluido|'
+         r'en espanol|en castellano|castellano|textos en espanol|idioma espanol|espanol) ')
 QUITAR_ESP = r' (toda espana|en espana|a espana|de espana|para espana|peninsula|envios? a espana) '
 # Se miran en el título: lotes, accesorios y otras cosas que no son un juego o una consola sueltos
 EXCLUIR_TITULO = (r' (repro|reproduccion|replica|copia|lote|lotes|pack|coleccion|juegos|cartuchos|consolas|busco|compro|cambio|'
@@ -55,7 +55,7 @@ EXCLUIR_TEXTO = (r' (repro|reproduccion|replica|no original|no es original|flash
                  r'averiad|para piezas|roto|rota|reparar|defectuos|falla|fallo|fallos|chip|chipeada|chipeado|modificada|'
                  r'modificado|pirata) ')
 # Si el título nombra otra plataforma, no es retro aunque la descripción hable de Game Boy o PS2
-OTRAS = (r' (switch|3ds|2ds|nds|ds|wii|wii u|gamecube|game cube|n64|nintendo 64|nes|master system|saturn|dreamcast|game gear|'
+OTRAS = (r' (switch|3ds|2ds|nds|ds|wii|wii u|gamecube|game cube|n64|nintendo 64|nes|master system|dreamcast|game gear|'
          r'ps3|ps4|ps5|playstation 3|playstation 4|playstation 5|psp|vita|xbox|pc|neo geo) ')
 PALABRAS_VACIAS = set('''completo completa completos cib pal esp espana espanol espanola version edicion juego videojuego para consola
     nintendo sega sony playstation ps1 ps2 psx psone super snes nes mega drive megadrive game boy gameboy advance gba gbc color colour
@@ -83,6 +83,8 @@ def es_espanol(raw, texto):
     t = re.sub(QUITAR_ESP, ' ', texto)
     if re.search(ESP_NO, t):
         return False
+    if re.search(EUR, t):                 # PAL Europa: vale si es multiidioma con español
+        return bool(re.search(MULTI, t))
     return '🇪🇸' in raw or '🇪🇦' in raw or bool(re.search(ESP_SI, t))
 
 
@@ -128,7 +130,8 @@ def referencia(it, tipo, plat, claves, consulta, get_json, nn, lat, lon, modelo=
             continue
         if tipo == CONSOLAS and not re.search(CAJA_CONSOLA, full):
             continue
-        if re.search(ESP_NO, re.sub(QUITAR_ESP, ' ', full)):
+        tq = re.sub(QUITAR_ESP, ' ', full)
+        if re.search(ESP_NO, tq) or (re.search(EUR, tq) and not re.search(MULTI, tq)):
             continue
         precios.append(c['price']['amount'])
         ejemplos.append((c['price']['amount'], c['title'][:60]))
@@ -180,7 +183,7 @@ def valorar(tipo, it, get_json, nn, lat, lon, margen_min=15, estricto_esp=True):
     if tipo == CONSOLAS and not re.search(CAJA_CONSOLA, full):
         return 'consola sin caja', None
     esp = es_espanol(raw, full)
-    if not esp and (estricto_esp or re.search(ESP_NO, re.sub(QUITAR_ESP, ' ', full))):
+    if not esp and (estricto_esp or re.search(ESP_NO, re.sub(QUITAR_ESP, ' ', full)) or re.search(EUR, re.sub(QUITAR_ESP, ' ', full))):
         return 'no consta PAL España', None
     if tipo == CONSOLAS:
         modelo = modelo_consola(t, plat)
