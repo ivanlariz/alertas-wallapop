@@ -2,7 +2,9 @@ name: Alertas Wallapop
 
 on:
   schedule:
-    - cron: '*/10 6-21 * * *'  # cada 10 minutos de 7:00 a 22:59 hora de Madrid (en horario de invierno; en verano de 8:00 a 23:59)
+    # GitHub retrasa o se salta muchos disparos "cada 10 min", así que cada disparo arranca un bucle
+    # que mira Wallapop cada 10 minutos durante horas; los disparos horarios solo sirven de relevo.
+    - cron: '7 6-21 * * *'
   workflow_dispatch:            # botón "Run workflow" para lanzarlo a mano
     inputs:
       prueba:
@@ -16,13 +18,14 @@ permissions:
   contents: write               # para guardar vistos.json y no repetir avisos
 
 concurrency:
-  group: alertas
+  # un solo bucle a la vez; las pruebas y las fichas revisadas a mano van aparte y salen al momento
+  group: ${{ github.event_name == 'schedule' && 'alertas-bucle' || format('alertas-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
   vigilar:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - name: Recordar el chat de Telegram
@@ -31,7 +34,7 @@ jobs:
           path: .telegram_chat
           key: telegram-chat-${{ github.run_id }}
           restore-keys: telegram-chat-
-      - name: Buscar en Wallapop y avisar
+      - name: Buscar en Wallapop y avisar (cada 10 minutos)
         env:
           WATCHLIST_CSV_URL: ${{ secrets.WATCHLIST_CSV_URL }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
@@ -41,13 +44,24 @@ jobs:
           CONSEJOS: ${{ github.event.inputs.consejos }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          # La primera vuelta de la mañana (7:xx en Madrid) mira también lo publicado durante la noche
-          if [ "$(TZ=Europe/Madrid date +%H)" = "07" ]; then export VENTANA_HORAS=9; fi
-          python3 alerta_wallapop.py
-      - name: Guardar anuncios ya vistos
+          BUCLE: ${{ github.event_name == 'schedule' && '1' || '0' }}
         run: |
           git config user.name "bot-alertas"
           git config user.email "bot-alertas@users.noreply.github.com"
-          git add vistos.json
-          git diff --cached --quiet || (git commit -m "vistos" -q && git push -q)
+          inicio=$(date +%s); vuelta=0
+          while true; do
+            t0=$(date +%s)
+            # La primera vuelta de la mañana (7:xx en Madrid) mira también lo publicado durante la noche
+            if [ "$vuelta" = 0 ] && [ "$(TZ=Europe/Madrid date +%H)" = "07" ]; then export VENTANA_HORAS=9; else unset VENTANA_HORAS; fi
+            python3 alerta_wallapop.py || echo "vuelta $vuelta con error"
+            git add vistos.json
+            if ! git diff --cached --quiet; then
+              git commit -m "vistos" -q
+              for i in 1 2 3; do git pull -q --rebase -X theirs origin main && git push -q && break; sleep 5; done
+            fi
+            vuelta=$((vuelta+1))
+            [ "$BUCLE" = 1 ] || break
+            h=$(TZ=Europe/Madrid date +%-H)
+            if [ "$h" -ge 23 ] || [ "$h" -lt 7 ] || [ $(( $(date +%s) - inicio )) -gt 19800 ]; then break; fi
+            espera=$(( 600 - ($(date +%s) - t0) )); [ "$espera" -gt 0 ] && sleep "$espera"
+          done
