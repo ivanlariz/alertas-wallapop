@@ -34,6 +34,10 @@ jobs:
           path: .telegram_chat
           key: telegram-chat-${{ github.run_id }}
           restore-keys: telegram-chat-
+      - name: Preparar el análisis de fotos (solo si hay clave de Anthropic)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: if [ -n "$ANTHROPIC_API_KEY" ]; then pip install -q anthropic; fi
       - name: Buscar en Wallapop y avisar (cada 10 minutos)
         env:
           WATCHLIST_CSV_URL: ${{ secrets.WATCHLIST_CSV_URL }}
@@ -43,6 +47,7 @@ jobs:
           PRUEBA: ${{ github.event.inputs.prueba == 'SI' && '1' || '0' }}
           CONSEJOS: ${{ github.event.inputs.consejos }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           BUCLE: ${{ (github.event_name == 'schedule' || (github.event.inputs.prueba != 'SI' && github.event.inputs.consejos == '')) && '1' || '0' }}
         run: |

@@ -295,6 +295,63 @@ def km_madrid(it):
     return 6371 * math.hypot(x, math.radians(la - LAT))
 
 
+FOTOS_ESQUEMA = {
+    "type": "object",
+    "properties": {
+        "estado": {"type": "string", "enum": ["bueno", "regular", "malo", "no_se_ve"]},
+        "resumen": {"type": "string"},
+        "defectos": {"type": "array", "items": {"type": "string"}},
+        "fotos_de_internet": {"type": "boolean"},
+        "descartar": {"type": "boolean"},
+    },
+    "required": ["estado", "resumen", "defectos", "fotos_de_internet", "descartar"],
+    "additionalProperties": False,
+}
+FOTOS_PROMPT = (
+    "Eres el comprador de una tienda de videojuegos retro que revende en Wallapop. Mira las fotos de este anuncio "
+    "({titulo}, {precio} €) y valora el estado real del producto para revenderlo. Fíjate en: pantalla rayada, "
+    "arañazos profundos, grietas o golpes en la carcasa, piezas que faltan o rotas (tapas, botones, joysticks), "
+    "carcasas no originales, óxido, suciedad incrustada, si se ve encendida, y si las fotos parecen sacadas de "
+    "internet o de catálogo en vez de hechas por el vendedor. Descripción del vendedor: {desc}\n"
+    "Responde en español. 'resumen': una o dos frases claras para el comprador. 'defectos': lista corta de lo que se ve. "
+    "'descartar': true solo si hay un defecto que impide revenderlo a buen precio (pantalla muy rayada o rota, "
+    "carcasa rota, piezas que faltan, no original) o si las fotos no son reales."
+)
+
+
+def analizar_fotos(it):
+    """Valoración automática de las fotos con Claude (solo si existe el secreto ANTHROPIC_API_KEY)."""
+    if not os.environ.get('ANTHROPIC_API_KEY'):
+        return None
+    try:
+        import anthropic
+    except ImportError:
+        return None
+    urls = [((im.get('urls') or {}).get('big') or (im.get('urls') or {}).get('medium')) for im in (it.get('images') or [])[:4]]
+    urls = [u for u in urls if u]
+    if not urls:
+        return None
+    contenido = [{"type": "image", "source": {"type": "url", "url": u}} for u in urls]
+    contenido.append({"type": "text", "text": FOTOS_PROMPT.format(
+        titulo=it['title'], precio=it['price']['amount'], desc=(it.get('description') or '')[:600])})
+    try:
+        r = anthropic.Anthropic().beta.messages.create(
+            model="claude-opus-5-5",
+            max_tokens=16000,
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": FOTOS_ESQUEMA}},
+            messages=[{"role": "user", "content": contenido}],
+        )
+        if r.stop_reason == "refusal":
+            return None
+        texto = next((b.text for b in r.content if b.type == "text"), '')
+        return json.loads(texto)
+    except Exception as e:
+        print('Aviso: no se pudieron analizar las fotos:', e)
+        return None
+
+
 def ficha_auto(a):
     """Convierte un aviso automático en una ficha con consejo (vendedor, señales, números y veredicto)."""
     it, v = a['it'], a['v']
@@ -313,6 +370,12 @@ def ficha_auto(a):
     if re.search(r' sin mando', nn(it['title'] + ' ' + (it.get('description') or ''))):
         avisos.append('no incluye mando')
     km = km_madrid(it)
+    fotos = a.get('fotos')
+    if fotos:
+        if fotos.get('fotos_de_internet'):
+            avisos.append('las fotos parecen de internet, no del vendedor')
+        elif fotos.get('estado') in ('regular', 'malo'):
+            avisos.append('fotos: ' + ', '.join(fotos.get('defectos') or [fotos['estado']]))
     lejos = not envio and km is not None and km > 60
     if not envio:
         avisos.append('solo entrega en mano' + (f' y está a ~{km:.0f} km de Madrid' if km is not None else ''))
@@ -330,6 +393,8 @@ def ficha_auto(a):
     # Veredicto automático
     objetivo = v.get('margen_obj') or 25
     fiable = (r or 0) >= 3 and den < 5 and len(vd.get('rojas', [])) <= 1
+    if fotos and fotos.get('estado') in ('regular', 'malo') and margen is not None:
+        margen -= 15                       # descuento por estado estético
     if lejos:
         veredicto = 'DESCARTAR salvo que pida envío: solo en mano y lejos de Madrid'
     elif margen is not None and margen >= objetivo and fiable:
@@ -354,6 +419,7 @@ def ficha_auto(a):
             ('Vendedor', f'{antiguedad(d)}, {r or 0} valoraciones, {ven or 0} ventas' + (f', {den} denuncias' if den else ', sin denuncias')
              + (', con foto' if vd.get('foto') else ', sin foto') + (', DNI verificado' if vd.get('dni') else '')),
             ('Números', numeros + (f' · {v["nota"]}' if v.get('nota') else '')),
+            ('Fotos', (f"{fotos['estado'].replace('_', ' ')}: {fotos['resumen']}") if fotos else ''),
             ('Señales', f'{vis} visitas, {fav} favoritos, {conv} conversaciones → {ritmo}'),
             ('Ritmo', ritmo_venta(it)),
         ],
@@ -362,16 +428,24 @@ def ficha_auto(a):
 
 
 def ficha_html(f):
-    lineas = ''.join(f'<b>{k}:</b> {t}<br>' for k, t in f['lineas'] if t)
-    avisos = ('<b style="color:#d35400">⚠️ ' + ' · '.join(f['avisos']) + '</b><br>') if f.get('avisos') else ''
+    """Ficha en una sola columna (pensada para leerla en el móvil): veredicto, foto grande y datos debajo."""
     color = '#27ae60' if f['veredicto'].upper().startswith('COMPRAR') else ('#2471a3' if f['veredicto'].upper().startswith('OFRECER') else '#d35400')
-    return (f'<tr><td style="padding:10px;vertical-align:top;width:170px"><a href="{f["url"]}"><img src="{f["img"]}" width="160" style="border-radius:6px"></a></td>'
-            f'<td style="padding:10px;vertical-align:top;font-family:Arial;font-size:14px;line-height:1.45">'
-            f'<a href="{f["url"]}" style="font-size:16px"><b>{f["titulo"]}</b></a><br>'
-            f'<b style="font-size:19px">{eur(f["precio"])}</b> · {"con envío" if f["envio"] else "solo en mano"} · {f["ciudad"]}<br>'
-            f'<span style="color:#555">{f["cabecera"]}</span><br>{lineas}{avisos}'
-            f'<span style="display:inline-block;margin-top:4px;padding:3px 8px;border-radius:4px;background:{color};color:#fff"><b>{f["veredicto"]}</b></span>'
-            f'</td></tr>')
+    lineas = ''.join(f'<p style="margin:6px 0"><b>{k}:</b> {t}</p>' for k, t in f['lineas'] if t and k != 'Anuncio')
+    anuncio = next((t for k, t in f['lineas'] if k == 'Anuncio' and t), '')
+    avisos = ''.join(f'<p style="margin:6px 0;color:#d35400"><b>⚠️ {a}</b></p>' for a in f.get('avisos') or [])
+    img = (f'<a href="{f["url"]}"><img src="{f["img"]}" alt="" style="display:block;width:100%;max-width:480px;height:auto;'
+           f'border-radius:8px;margin:8px 0"></a>') if f.get('img') else ''
+    return (f'<div style="font-family:Arial,sans-serif;font-size:16px;line-height:1.45;max-width:520px;margin:0 0 22px;'
+            f'padding:12px;border:1px solid #ddd;border-radius:10px">'
+            f'<div style="display:inline-block;padding:6px 10px;border-radius:6px;background:{color};color:#fff;font-size:16px">'
+            f'<b>{f["veredicto"]}</b></div>'
+            f'<p style="margin:10px 0 2px;font-size:18px"><a href="{f["url"]}"><b>{f["titulo"]}</b></a></p>'
+            f'<p style="margin:2px 0"><b style="font-size:22px">{eur(f["precio"])}</b> · {"con envío" if f["envio"] else "solo en mano"} · {f["ciudad"]}</p>'
+            f'<p style="margin:2px 0;color:#666;font-size:14px">{f["cabecera"]}</p>'
+            f'{img}{avisos}{lineas}'
+            + (f'<p style="margin:6px 0;color:#666;font-size:14px">{anuncio}</p>' if anuncio else '')
+            + f'<a href="{f["url"]}" style="display:inline-block;margin-top:6px;padding:10px 14px;background:#13c1ac;color:#fff;'
+            f'border-radius:6px;text-decoration:none"><b>Abrir en Wallapop</b></a></div>')
 
 
 def ficha_telegram(f):
@@ -434,8 +508,8 @@ def enviar_telegram(fichas, cabecera):
 
 def enviar(fichas, asunto, intro, prueba=False):
     asunto = ('[PRUEBA] ' if prueba else '') + asunto
-    html = (f'<p style="font-family:Arial;font-size:14px">{intro}</p><table>' + ''.join(ficha_html(f) for f in fichas) +
-            '</table><p style="font-family:Arial;color:#999;font-size:12px">Bot de alertas RetrodelNorte. '
+    html = (f'<p style="font-family:Arial;font-size:16px">{intro}</p>' + ''.join(ficha_html(f) for f in fichas) +
+            '<p style="font-family:Arial;color:#999;font-size:12px">Bot de alertas RetrodelNorte. '
             'Edita la hoja de vigilancia para añadir o quitar productos. Antes de pagar, revisa fotos y descripción.</p>')
     enviar_telegram(fichas, f'<b>{asunto}</b>')
     user, pwd = os.environ.get('GMAIL_USER'), os.environ.get('GMAIL_APP_PASSWORD')
@@ -537,6 +611,10 @@ def main():
             a['vend'] = vendedor(a['it']['user_id'])
             if sospechoso(a['vend'], a['it']['price']['amount']):
                 print('Descartado por perfil sospechoso:', a['it']['title'], a['vend']['rojas'])
+                continue
+            a['fotos'] = analizar_fotos(a['it'])
+            if a['fotos'] and a['fotos'].get('descartar'):
+                print('Descartado por las fotos:', a['it']['title'], '-', a['fotos'].get('resumen'))
                 continue
             buenos.append(a)
         if buenos:
