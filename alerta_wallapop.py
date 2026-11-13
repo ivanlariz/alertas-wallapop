@@ -24,7 +24,7 @@ from email.utils import formatdate, make_msgid
 AQUI = os.path.dirname(os.path.abspath(__file__))
 VISTOS = os.path.join(AQUI, 'vistos.json')
 H = {'X-DeviceOS': '0', 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'}
-LAT, LON = 40.4168, -3.7038          # centro de España: Wallapop exige coordenadas; con envío da igual
+LAT, LON = 40.4168, -3.7038          # Madrid, donde vive Iván (Wallapop exige coordenadas)
 # Hoja "Alertas Wallapop RetrodelNorte", pestaña Vigilancia, publicada como CSV
 HOJA_CSV = ('https://docs.google.com/spreadsheets/d/e/2PACX-1vS7XKyB2snAKjoa70AH0m5twsE7cwms92L6kPMNKzXddXrK73F9EMhVpy37Fp39iLEUV8ti12jo5Avh'
             '/pub?gid=0&single=true&output=csv')
@@ -284,6 +284,17 @@ def antiguedad(dias):
     return f'cuenta de {dias} días' if dias < 60 else (f'cuenta de {dias // 30} meses' if dias < 730 else f'cuenta de {dias // 365} años')
 
 
+def km_madrid(it):
+    """Distancia aproximada (km) del anuncio a Madrid, donde vive Iván."""
+    import math
+    loc = it.get('location') or {}
+    la, lo = loc.get('latitude'), loc.get('longitude')
+    if la is None or lo is None:
+        return None
+    x = math.radians(lo - LON) * math.cos(math.radians((la + LAT) / 2))
+    return 6371 * math.hypot(x, math.radians(la - LAT))
+
+
 def ficha_auto(a):
     """Convierte un aviso automático en una ficha con consejo (vendedor, señales, números y veredicto)."""
     it, v = a['it'], a['v']
@@ -301,8 +312,10 @@ def ficha_auto(a):
         avisos.append('anuncio reutilizado (el enlace es de otro producto): posible estafa')
     if re.search(r' sin mando', nn(it['title'] + ' ' + (it.get('description') or ''))):
         avisos.append('no incluye mando')
+    km = km_madrid(it)
+    lejos = not envio and km is not None and km > 60
     if not envio:
-        avisos.append('solo entrega en mano')
+        avisos.append('solo entrega en mano' + (f' y está a ~{km:.0f} km de Madrid' if km is not None else ''))
     if vd.get('rojas'):
         avisos.append('perfil: ' + ', '.join(vd['rojas']) + ' → paga solo dentro de Wallapop')
     coste = precio * 1.05 + 5 if envio else precio
@@ -317,7 +330,9 @@ def ficha_auto(a):
     # Veredicto automático
     objetivo = v.get('margen_obj') or 25
     fiable = (r or 0) >= 3 and den < 5 and len(vd.get('rojas', [])) <= 1
-    if margen is not None and margen >= objetivo and fiable:
+    if lejos:
+        veredicto = 'DESCARTAR salvo que pida envío: solo en mano y lejos de Madrid'
+    elif margen is not None and margen >= objetivo and fiable:
         veredicto = 'COMPRAR' + (' rápido' if conv >= 5 else '') + ('' if envio else ' (recogida en mano)')
     elif margen is not None and (r or 0) >= 1 and den < 5 and margen >= objetivo * 0.6:
         oferta = int((precio - max(0, objetivo - margen)) // 5 * 5)
