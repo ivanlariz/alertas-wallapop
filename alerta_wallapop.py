@@ -303,9 +303,11 @@ FOTOS_ESQUEMA = {
         "resumen": {"type": "string"},
         "defectos": {"type": "array", "items": {"type": "string"}},
         "fotos_de_internet": {"type": "boolean"},
+        "completo": {"type": "string", "enum": ["si", "no", "no_se_ve"]},
+        "version": {"type": "string", "enum": ["pal_esp", "pal_eur_multi", "pal_otro", "ntsc", "no_se_ve"]},
         "descartar": {"type": "boolean"},
     },
-    "required": ["estado", "resumen", "defectos", "fotos_de_internet", "descartar"],
+    "required": ["estado", "resumen", "defectos", "fotos_de_internet", "completo", "version", "descartar"],
     "additionalProperties": False,
 }
 FOTOS_PROMPT = (
@@ -315,6 +317,12 @@ FOTOS_PROMPT = (
     "carcasas no originales, óxido, suciedad incrustada, si se ve encendida, y si las fotos parecen sacadas de "
     "internet o de catálogo en vez de hechas por el vendedor. Descripción del vendedor: {desc}\n"
     "Responde en español. 'resumen': una o dos frases claras para el comprador. 'defectos': lista corta de lo que se ve. "
+    "'completo': 'si' solo si en las fotos se ven la caja original, el manual y el juego (o, en una consola portátil, "
+    "la caja y las instrucciones); 'no' si falta algo; 'no_se_ve' si no se puede saber. "
+    "'version': 'pal_esp' si se ve que es la edición española (textos de caja o manual en castellano, 'ESP' en el "
+    "lomo o la contraportada, pegatinas españolas); 'pal_eur_multi' si es PAL europea con español entre sus idiomas; "
+    "'pal_otro' si es PAL de otro país (UK, FR, IT, DE…); 'ntsc' si es americana o japonesa (ESRB, NTSC, textos en japonés); "
+    "'no_se_ve' si las fotos no lo permiten saber. Repros o copias: descartar. "
     "'descartar': true solo si hay un defecto que impide revenderlo a buen precio (pantalla muy rayada o rota, "
     "carcasa rota, piezas que faltan, no original) o si las fotos no son reales."
 )
@@ -420,7 +428,10 @@ def ficha_auto(a):
             ('Vendedor', f'{antiguedad(d)}, {r or 0} valoraciones, {ven or 0} ventas' + (f', {den} denuncias' if den else ', sin denuncias')
              + (', con foto' if vd.get('foto') else ', sin foto') + (', DNI verificado' if vd.get('dni') else '')),
             ('Números', numeros + (f' · {v["nota"]}' if v.get('nota') else '')),
-            ('Fotos', (f"{fotos['estado'].replace('_', ' ')}: {fotos['resumen']}") if fotos else ''),
+            ('Fotos', (f"{fotos['estado'].replace('_', ' ')}: {fotos['resumen']}"
+                       + {'si': ' · completo según las fotos', 'no': ' · INCOMPLETO según las fotos'}.get(fotos.get('completo'), '')
+                       + {'pal_esp': ' · versión PAL España', 'pal_eur_multi': ' · PAL Europa con español'}.get(fotos.get('version'), ''))
+             if fotos else ''),
             ('Señales', f'{vis} visitas, {fav} favoritos, {conv} conversaciones → {ritmo}'),
             ('Ritmo', ritmo_venta(it)),
         ],
@@ -615,14 +626,20 @@ def main():
             vistos[iid] = precio
             if not (nuevo or bajada):
                 continue
-            motivo, d = retro.valorar(tipo, it, get_json, nn, LAT, LON)
+            con_vision = bool(os.environ.get('ANTHROPIC_API_KEY'))
+            # Con análisis de fotos también se miran anuncios mal descritos (sin «completo» o sin versión): las fotos deciden
+            motivo, d = retro.valorar(tipo, it, get_json, nn, LAT, LON,
+                                      estricto_esp=not con_vision, requiere_completo=not con_vision)
             if not d:
                 continue
             r = d['ref']
             v = {'busco': d['etiqueta'], 'max': d['max'], 'venta': d['venta'], 'margen_obj': d['objetivo'],
                  'nota': f"referencia: {r['n']} anuncios completos en Wallapop (mediana {eur(r['mediana'], 0)}, "
                          f"más barato {eur(r['min'], 0)}); venta estimada {eur(d['venta'], 0)}"}
-            avisos.append({'it': it, 'v': v, 'antes': antes} if bajada else {'it': it, 'v': v})
+            a_ = {'it': it, 'v': v, 'retro': d}
+            if bajada:
+                a_['antes'] = antes
+            avisos.append(a_)
         print(f'Modo retro: {len(nuevos)} anuncios mirados')
     for v in lista:
         for it in buscar(v):
@@ -650,6 +667,15 @@ def main():
             if a['fotos'] and a['fotos'].get('descartar'):
                 print('Descartado por las fotos:', a['it']['title'], '-', a['fotos'].get('resumen'))
                 continue
+            d = a.get('retro')
+            if d and not (d['dice_completo'] and d['esp_confirmado']):
+                f = a['fotos'] or {}
+                if not d['dice_completo'] and f.get('completo') != 'si':
+                    print('Descartado: las fotos no confirman que esté completo:', a['it']['title'])
+                    continue
+                if not d['esp_confirmado'] and f.get('version') not in ('pal_esp', 'pal_eur_multi'):
+                    print('Descartado: las fotos no confirman PAL España:', a['it']['title'], f.get('version'))
+                    continue
             buenos.append(a)
         if buenos:
             fichas = [ficha_auto(a) for a in buenos]
