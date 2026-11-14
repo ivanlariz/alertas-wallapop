@@ -662,6 +662,10 @@ def main():
         uniq = list({a['it']['id']: a for a in avisos}.values())
         buenos = []
         for a in uniq:
+            km = km_madrid(a['it'])
+            if not (a['it'].get('shipping') or {}).get('user_allows_shipping') and (km is None or km > 30):
+                print('Descartado: solo en mano y lejos de Madrid:', a['it']['title'], km)
+                continue
             a['vend'] = vendedor(a['it']['user_id'])
             if sospechoso(a['vend'], a['it']['price']['amount']):
                 print('Descartado por perfil sospechoso:', a['it']['title'], a['vend']['rojas'])
