@@ -126,6 +126,8 @@ def referencia(it, tipo, plat, claves, consulta, get_json, nn, lat, lon, modelo=
             continue
         if tipo == CONSOLAS and re.match(r' (juego|videojuego) ', t):
             continue
+        if re.search(r' (promo|promocional|precintado|precintada|sellado|nuevo a estrenar|coleccionista|collector) ', t):
+            continue        # ediciones promo o precintadas no sirven de referencia para un usado
         if tipo == JUEGOS and not re.search(COMPLETO, full):
             continue
         if tipo == CONSOLAS and not re.search(CAJA_CONSOLA, full):
@@ -145,7 +147,9 @@ def referencia(it, tipo, plat, claves, consulta, get_json, nn, lat, lon, modelo=
     precios = [e[0] for e in ejemplos]
     if len(precios) < 3:
         return None
-    return {'venta': round(_pct(precios, 0.4), 2), 'n': len(precios), 'mediana': round(statistics.median(precios), 2),
+    # Venta = el comparable completo MÁS BARATO: si alguien (p. ej. un revendedor) lo vende a ese precio,
+    # por encima no se vende rápido. Más prudente que la mediana de precios pedidos, que suele estar inflada.
+    return {'venta': min(precios), 'n': len(precios), 'mediana': round(statistics.median(precios), 2),
             'min': min(precios), 'ejemplos': sorted(ejemplos)[:3]}
 
 
