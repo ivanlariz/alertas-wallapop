@@ -51,7 +51,7 @@ EXCLUIR_TITULO = (r' (repro|reproduccion|replica|copia|lote|lotes|pack|coleccion
                   r'solo caja|caja vacia|solo manual|manual|guia|poster|funda|carcasa|protector|figura|amiibo|mando|mandos|'
                   r'cable|cables|adaptador|cargador|memory card|tarjeta de memoria) ')
 # Se miran en título y descripción: falsificaciones y fallos
-EXCLUIR_TEXTO = (r' (repro|reproduccion|replica|no original|no es original|flash|everdrive|r4|no funciona|no carga|no lee|'
+EXCLUIR_TEXTO = (r' (repro|re pro|reproducción|reproduccion|replica|no original|no es original|flash|everdrive|r4|no funciona|no carga|no lee|'
                  r'averiad|para piezas|roto|rota|reparar|defectuos|falla|fallo|fallos|chip|chipeada|chipeado|modificada|'
                  r'modificado|pirata) ')
 # Si el título nombra otra plataforma, no es retro aunque la descripción hable de Game Boy o PS2
