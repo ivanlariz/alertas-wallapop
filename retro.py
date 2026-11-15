@@ -1,5 +1,6 @@
 """Vigilancia retro de RetrodelNorte: juegos de Mega Drive, Super Nintendo, Saturn, Game Boy, Game Boy Advance, PS1 y PS2
-y consolas PORTÁTILES (Game Boy, Color, Pocket, Advance, Advance SP), solo COMPLETOS (caja e instrucciones) y
+PSP y Nintendo 64,
+y consolas PORTÁTILES (Game Boy, Color, Pocket, Advance, Advance SP, PSP), solo COMPLETOS (caja e instrucciones) y
 PAL ESPAÑA (o PAL Europa multiidioma con español cuando lo indica el anuncio).
 
 Para cada anuncio nuevo que pasa los filtros busca en Wallapop anuncios comparables (mismo juego o consola, misma
@@ -20,6 +21,8 @@ PLATAFORMAS = [
     ('saturn', 'Saturn', r' (sega saturn|saturn) ', ['sega saturn', 'saturn']),
     ('ps2', 'PS2', r' (ps2|playstation 2|play station 2|play 2) ', ['ps2', 'playstation 2']),
     ('ps1', 'PS1', r' (ps1|psx|psone|ps one|playstation 1|play station 1|playstation one|play 1) ', ['ps1', 'psx playstation']),
+    ('psp', 'PSP', r' (psp|playstation portable|play station portable) ', ['psp', 'juego psp umd']),
+    ('n64', 'Nintendo 64', r' (n64|nintendo 64|nintendo64) ', ['nintendo 64', 'n64']),
 ]
 # Consolas: modelo -> (plataforma, búsqueda, regex del modelo)
 # Consolas: SOLO PORTÁTILES (Iván no quiere cajas grandes de sobremesa). modelo -> (plataforma, búsqueda, regex)
@@ -29,6 +32,11 @@ CONSOLAS_MODELOS = [
     ('Game Boy Color', 'gb', 'consola game boy color caja', r' (game ?boy colou?r|gameboy colou?r|gbc) '),
     ('Game Boy Pocket', 'gb', 'game boy pocket caja', r' (game ?boy pocket|gameboy pocket) '),
     ('Game Boy', 'gb', 'consola game boy clasica caja', r' (game ?boy|gameboy|dmg) '),
+    ('PSP Go', 'psp', 'psp go caja', r' (psp go|pspgo|psp n1004) '),
+    ('PSP Street', 'psp', 'psp street caja', r' (psp street|psp e1004|e1004|e1000) '),
+    ('PSP 3000', 'psp', 'psp 3000 caja', r' (psp 3000|psp 300\d|3004) '),
+    ('PSP 2000', 'psp', 'psp 2000 caja', r' (psp 2000|psp 200\d|psp slim|2004) '),
+    ('PSP 1000', 'psp', 'psp 1000 caja', r' (psp 1000|psp 100\d|psp fat|1004) '),
 ]
 
 COMPLETO = r' (completo|completa|completos|cib|caja y manual|caja manual|caja e instrucciones|caja instrucciones|con manual|con instrucciones|manual incluido|precintado|precintada|sellado|nuevo a estrenar) '
@@ -55,12 +63,13 @@ EXCLUIR_TEXTO = (r' (repro|re pro|creacion propia|caja custom|custom|reproducci�
                  r'averiad|para piezas|roto|rota|reparar|defectuos|falla|fallo|fallos|chip|chipeada|chipeado|modificada|'
                  r'modificado|pirata) ')
 # Si el título nombra otra plataforma, no es retro aunque la descripción hable de Game Boy o PS2
-OTRAS = (r' (switch|3ds|2ds|nds|ds|wii|wii u|gamecube|game cube|n64|nintendo 64|nes|master system|dreamcast|game gear|'
-         r'ps3|ps4|ps5|playstation 3|playstation 4|playstation 5|psp|vita|xbox|pc|neo geo) ')
+OTRAS = (r' (switch|3ds|2ds|nds|ds|wii|wii u|gamecube|game cube|nes|master system|dreamcast|game gear|'
+         r'ps3|ps4|ps5|playstation 3|playstation 4|playstation 5|vita|xbox|pc|neo geo) ')
 PALABRAS_VACIAS = set('''completo completa completos cib pal esp espana espanol espanola version edicion juego videojuego para consola
     nintendo sega sony playstation ps1 ps2 psx psone super snes nes mega drive megadrive game boy gameboy advance gba gbc color colour
     con caja manual instrucciones original originales de del la el los las y en a un una muy buen bueno buena estado perfecto
-    perfecta precintado nuevo usado funciona cartucho disco uk es eur castellano envio incluido incluye vendo venta ntsc'''.split())
+    perfecta precintado nuevo usado funciona cartucho disco uk es eur castellano envio incluido incluye vendo venta ntsc
+    psp umd portable n64 64'''.split())
 
 
 def _pct(xs, p):
