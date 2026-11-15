@@ -23,6 +23,7 @@ PLATAFORMAS = [
     ('ps1', 'PS1', r' (ps1|psx|psone|ps one|playstation 1|play station 1|playstation one|play 1) ', ['ps1', 'psx playstation']),
     ('psp', 'PSP', r' (psp|playstation portable|play station portable) ', ['psp', 'juego psp umd']),
     ('n64', 'Nintendo 64', r' (n64|nintendo 64|nintendo64) ', ['nintendo 64', 'n64']),
+    ('dc', 'Dreamcast', r' (dreamcast|sega dreamcast|dream cast) ', ['dreamcast', 'juego dreamcast']),
 ]
 # Consolas: modelo -> (plataforma, búsqueda, regex del modelo)
 # Consolas: SOLO PORTÁTILES (Iván no quiere cajas grandes de sobremesa). modelo -> (plataforma, búsqueda, regex)
@@ -63,13 +64,13 @@ EXCLUIR_TEXTO = (r' (repro|re pro|creacion propia|caja custom|custom|reproducci�
                  r'averiad|para piezas|roto|rota|reparar|defectuos|falla|fallo|fallos|chip|chipeada|chipeado|modificada|'
                  r'modificado|pirata) ')
 # Si el título nombra otra plataforma, no es retro aunque la descripción hable de Game Boy o PS2
-OTRAS = (r' (switch|3ds|2ds|nds|ds|wii|wii u|gamecube|game cube|nes|master system|dreamcast|game gear|'
+OTRAS = (r' (switch|3ds|2ds|nds|ds|wii|wii u|gamecube|game cube|nes|master system|game gear|'
          r'ps3|ps4|ps5|playstation 3|playstation 4|playstation 5|vita|xbox|pc|neo geo) ')
 PALABRAS_VACIAS = set('''completo completa completos cib pal esp espana espanol espanola version edicion juego videojuego para consola
     nintendo sega sony playstation ps1 ps2 psx psone super snes nes mega drive megadrive game boy gameboy advance gba gbc color colour
     con caja manual instrucciones original originales de del la el los las y en a un una muy buen bueno buena estado perfecto
     perfecta precintado nuevo usado funciona cartucho disco uk es eur castellano envio incluido incluye vendo venta ntsc
-    psp umd portable n64 64'''.split())
+    psp umd portable n64 64 dreamcast dream cast'''.split())
 
 
 def _pct(xs, p):

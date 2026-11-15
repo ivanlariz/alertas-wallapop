@@ -14,7 +14,7 @@ Iván lleva RetrodelNorte, una tienda de videojuegos retro (Shopify: retrodelnor
 - `ritmo.json`: el ritmo de venta, que se actualiza a diario.
 
 ## Criterios de compra (decididos por Iván)
-- **Juegos:** de Mega Drive, SNES, Saturn, GB/GBC, GBA, PS1, PS2, PSP y N64. Siempre COMPLETOS (caja, manual y juego) y PAL ESPAÑA.
+- **Juegos:** de Mega Drive, SNES, Saturn, Dreamcast, GB/GBC, GBA, PS1, PS2, PSP y N64. Siempre COMPLETOS (caja, manual y juego) y PAL ESPAÑA.
   - PAL Europa multiidioma con español solo si no existe edición española de ese título.
   - Nunca UK, FR, IT, DE, NTSC ni japonés.
   - Platinum, Classics y Essentials valen menos.
