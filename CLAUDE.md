@@ -18,9 +18,9 @@ Iván lleva RetrodelNorte, una tienda de videojuegos retro (Shopify: retrodelnor
   - PAL Europa multiidioma con español solo si no existe edición española de ese título.
   - Nunca UK, FR, IT, DE, NTSC ni japonés.
   - Platinum, Classics y Essentials valen menos.
-- **Consolas:** solo portátiles (GB, Pocket, Color, Advance, SP, PSP), completas con caja e instrucciones. Nada de sobremesa.
+- **Consolas:** solo portátiles (GB, Pocket, Color, Advance, SP, PSP), completas con caja e instrucciones. Nada de sobremesa suelta; en lotes con juegos sí.
 - **En pausa:** PS5, Switch 2, portátiles de PC, PS Vita y DS/3DS.
-- **Lotes:** solo si los juegos completos PAL España valen claramente más que el lote (margen de 30 € o más, o del 40 % o más).
+- **Lotes (15/11):** le interesa cualquier lote de juegos completos PAL España, también los de juegos baratos de PS2 y los que traen consola de sobremesa. Se valora todo: cada juego por separado, de forma conservadora (un juego común de PS2 completo se vende a unos 8-15 €), más la consola. Merece la pena con un margen de 30 € o más, o del 40 % o más.
 - **Prioridad por demanda:** Pokémon de GBA y Game Boy (mira la placa y la etiqueta: es lo más falsificado), Golden Sun, Zelda, Mega Man X, Super Metroid, Chrono Trigger, Terranigma, Budokai Tenkaichi 3, Sly, Jak, CTR, MediEvil, GTA Stories, Peace Walker, Mario 64 y Banjo-Kazooie.
 - **Entrega:** en mano interesa hasta unos 25-30 km del norte de Madrid. Más lejos, solo con envío.
 
