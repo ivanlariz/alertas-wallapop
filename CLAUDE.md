@@ -4,6 +4,7 @@ Iván lleva RetrodelNorte, una tienda de videojuegos retro (Shopify: retrodelnor
 
 ## Qué hay en este repositorio
 - `alerta_wallapop.py`: el bot de GitHub Actions (`.github/workflows/alertas.yml`). Corre cada 10 minutos y avisa por email y Telegram.
+- `revendedores.py` + `.github/workflows/revendedores.yml` (19/11): cada 8 h mira las ventas de los revendedores (valoraciones de sus perfiles), las apunta con su precio y busca en Wallapop el mismo producto retro más barato; lo manda por email. La lista de revendedores va en el secreto `REVENDEDORES` (ids de usuario de Wallapop), nunca en el repo. Vinted no: su protección anti-bots bloquea el acceso automático y no se salta.
 - `retro.py`: el modo retro, con `MODO_RETRO=True`. Define las plataformas, la valoración de juegos COMPLETOS PAL España y las consolas portátiles con caja.
 - `pasadas/`: los scripts de la revisión horaria a mano.
   - `retro_pasada.py [horas]`: los anuncios retro nuevos. Usa 1.3 en las pasadas normales y 8 en la de las 7:07. La salida va a retro.json, con candidatos y lotes.
