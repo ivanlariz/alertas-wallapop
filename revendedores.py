@@ -4,20 +4,22 @@
 Cada 8 horas (GitHub Actions, workflow revendedores.yml):
   1. Mira las valoraciones de los revendedores que sigue Iván: cada valoración de venta es un artículo vendido,
      con su título, el último precio que tenía y la fecha.
-  2. Apunta las ventas nuevas desde la última vez.
-  3. Para las que cumplen los criterios retro de Iván (juego completo PAL España de sus plataformas, o portátil con
-     caja), busca en Wallapop el mismo producto más barato que lo que lo vendió el revendedor.
-  4. Manda UN correo a Iván con las ventas y los anuncios más baratos encontrados.
+  2. Apunta las ventas nuevas y guarda un historial de 90 días de todo lo retro que han vendido (la primera vez lo
+     rellena hacia atrás).
+  3. Para CADA producto retro del historial (juego de las plataformas de Iván o portátil con caja), busca en Wallapop
+     anuncios del mismo producto más baratos que la mediana a la que lo han vendido los revendedores, comprueba con
+     Claude en las fotos que estén completos y no repite anuncios ya enviados (salvo que bajen de precio).
+  4. Manda UN correo a Iván con los chollos y las ventas nuevas.
 
 Variables de entorno:
   REVENDEDORES        ids de usuario de Wallapop de los revendedores, separados por comas o espacios (secreto de GitHub).
                       Si falta, se leen de revendedores.txt (no se sube al repositorio).
   GMAIL_USER, GMAIL_APP_PASSWORD, ALERT_TO   como en alerta_wallapop.py
-  VENTANA_HORAS       ventas de las últimas N horas en la primera ejecución sin estado (por defecto 72)
+  DIAS_HISTORIAL      días de ventas que se guardan y se usan como referencia (por defecto 90)
 Sin GMAIL_USER/GMAIL_APP_PASSWORD no envía nada: imprime el resumen (modo prueba).
 Los registros de GitHub son públicos: aquí solo se imprimen recuentos, nunca nombres de vendedores.
 """
-import html, json, os, re, smtplib, sys, time, urllib.parse
+import html, json, os, re, smtplib, statistics, sys, time, urllib.parse
 from email.mime.text import MIMEText
 from email.utils import formatdate, make_msgid
 
@@ -44,10 +46,10 @@ def cargar_estado():
         return {}
 
 
-def ventas_nuevas(uid, desde_ms, vistos):
+def ventas_nuevas(uid, desde_ms, vistos, paginas=3):
     """Ventas (valoraciones de tipo 'sell') del revendedor posteriores a desde_ms y no vistas."""
     out = []
-    for pagina in range(3):
+    for pagina in range(paginas):
         r = aw.get_json(API + f'users/{uid}/reviews?' + urllib.parse.urlencode({'init': pagina * 40}))
         if not r:
             break
@@ -131,51 +133,93 @@ def clasificar(v):
     return R.JUEGOS, plat, f'juego {nombre}' + (' completo' if completo else ''), None
 
 
-def mas_baratos(v, tipo, plat, revendedores):
+GENERICAS = R.PALABRAS_VACIAS | set('''the of and le la saturn sega ss gb gbc version versio pal espana spain spanish edition
+    edicion clasico classic retro coleccion coleccionista impecable excelente nuevo nueva completo completa caja manual
+    instrucciones mapa poster registro tarjeta inserto inlay jap europa europeo europea hedgehog jogo videojogo erbe
+    konami capcom nintendo ubisoft electronic arts ea namco tecmo sunsoft acclaim activision midway thq'''.split())
+MARCAS = set('erbe konami capcom nintendo sega sony ubisoft electronic arts ea namco tecmo sunsoft acclaim activision midway thq'.split())
+
+
+def palabras(titulo):
+    """Palabras que identifican el juego (sin plataforma, estado, versión ni relleno)."""
+    t = re.sub(r'\([^)]*\)|\[[^\]]*\]', ' ', titulo)
+    return [w for w in aw.nn(t).split() if w not in GENERICAS and len(w) >= 2 and not w.isdigit() and w not in ROMANOS]
+
+
+def clave_producto(tipo, plat, titulo):
+    """Identificador del producto para agrupar ventas: plataforma + palabras del título + número de entrega."""
+    t = aw.nn(titulo)
+    if tipo == R.CONSOLAS:
+        return f'c|{plat}|{(R.modelo_consola(t, plat) or ("?",))[0]}'
+    claves = palabras(titulo)
+    if not [w for w in claves if w not in MARCAS]:
+        return None
+    return f'j|{plat}|{" ".join(sorted(set(claves)))}|{" ".join(sorted(numeros(t)))}'
+
+
+def mirar_fotos(c, est):
+    """Análisis de fotos con Claude, guardado por anuncio y precio para no pagarlo dos veces."""
+    cache = est.setdefault('fotos', {})
+    k = f"{c['id']}|{c['price']['amount']}"
+    if k in cache:
+        return cache[k]
+    f = aw.analizar_fotos(c)
+    if f is not None:
+        cache[k] = f
+    return f
+
+
+def mas_baratos(v, tipo, plat, revendedores, est):
     """Anuncios activos del mismo producto, completos y PAL España, que dejan margen frente al precio de venta."""
     venta = v['precio']
+    enviados = est.setdefault('enviados', {})
     if tipo == R.CONSOLAS:
         modelo = R.modelo_consola(aw.nn(v['titulo']), plat)
+        if not modelo:
+            return []
         claves, consulta = [], modelo[2].replace(' caja', '')
     else:
         modelo = None
-        claves = R.claves_titulo(v['titulo'], aw.nn)
-        if not claves:
+        claves = list(dict.fromkeys(palabras(v['titulo'])))
+        if not [w for w in claves if w not in MARCAS] or venta < 25:
             return []
-        consulta = ' '.join(claves) + ' ' + next(qs[0] for c, _, _, qs in R.PLATAFORMAS if c == plat)
+        consulta = ' '.join(claves[:6]) + ' ' + next(qs[0] for c, _, _, qs in R.PLATAFORMAS if c == plat)
     q = {'keywords': consulta, 'latitude': aw.LAT, 'longitude': aw.LON, 'source': 'search_box',
          'category_ids': '24200', 'subcategory_ids': tipo, 'order_by': 'price_low_to_high',
          'min_sale_price': max(3, int(venta * 0.15)), 'max_sale_price': int(venta)}
     d = aw.get_json(API + 'search?' + urllib.parse.urlencode(q))
     out = []
     for c in (d or {}).get('data', {}).get('section', {}).get('payload', {}).get('items', []):
-        if c['id'] == v['id'] or (c.get('user_id') in revendedores) or (c.get('reserved') or {}).get('flag'):
+        if c.get('user_id') in revendedores or (c.get('reserved') or {}).get('flag'):
             continue
+        if c['id'] in enviados and c['price']['amount'] >= enviados[c['id']]:
+            continue                                   # ya enviado y no ha bajado de precio
         raw = c['title'] + ' ' + (c.get('description') or '')
         t, full = aw.nn(c['title']), aw.nn(raw)
         if claves and not all(f' {k} ' in t for k in claves):
+            continue
+        if claves and [w for w in palabras(c['title']) if w not in claves and len(w) >= 4]:
+            continue                                   # otro juego: Top Gear Rally ≠ Top Gear, Paper Mario ≠ Super Mario
+        if re.search(r' (ps3|ps4|ps5|xbox|switch|wii|nes|gamecube|3ds|2ds|nds|ds|master system|game gear|genesis) ', t):
             continue
         if numeros(t) != numeros(aw.nn(v['titulo'])):
             continue                                   # Mega Games 2 ≠ Mega Games I, Sonic Adventure ≠ Sonic Adventure 2
         if re.search(r' (trial|demo|promo|promocional|not for resale) ', full):
             continue
-        if R.plataforma(t)[0] != plat and R.plataforma(full)[0] != plat:
-            continue
+        if R.plataforma(t)[0] != plat:
+            continue                                   # la plataforma tiene que estar en el título
         if modelo and ((R.modelo_consola(t, plat) or (None,))[0] != modelo[0] or not es_consola_portatil(t, plat)):
             continue
         if tipo == R.JUEGOS and es_consola_portatil(t, plat):
             continue
         if re.search(R.EXCLUIR_TITULO, t) or re.search(R.EXCLUIR_TEXTO, full) or re.search(R.INCOMPLETO, full):
             continue
-        # Muchos anuncios no escriben «completo» ni «PAL España» aunque lo sean: valen con 3 o más fotos y sin
-        # señales de ser extranjeros, y se marcan para comprobarlo en las fotos (como la pasada a mano).
         if re.search(R.ESP_NO, re.sub(R.QUITAR_ESP, ' ', full)) or '🇯🇵' in raw or '🇺🇸' in raw:
             continue
-        fotos = len(c.get('images') or [])
-        completo = bool(re.search(R.COMPLETO if tipo == R.JUEGOS else R.CAJA_CONSOLA, full))
-        if not completo and (fotos < 3 or re.search(r' (cartucho|solo disco|suelto|suelta) ', t)
-                             or (tipo == R.CONSOLAS and not re.search(r' caja ', full))):
+        # No hace falta que diga «completo»: lo comprueba Claude en las fotos y la descripción (abajo)
+        if len(c.get('images') or []) < 2:
             continue
+        completo = bool(re.search(R.COMPLETO if tipo == R.JUEGOS else R.CAJA_CONSOLA, full))
         esp = R.es_espanol(raw, full)
         precio = c['price']['amount']
         envio = bool((c.get('shipping') or {}).get('user_allows_shipping'))
@@ -186,28 +230,30 @@ def mas_baratos(v, tipo, plat, revendedores):
         margen = venta * 0.95 - coste
         if margen < max(15, round(coste * 0.3)):
             continue
-        if any(o['titulo'] == c['title'] and o['precio'] == c['price']['amount'] for o in out):
+        if any(o['titulo'] == c['title'] and o['precio'] == precio for o in out):
             continue                                   # el mismo anuncio resubido
-        out.append({'titulo': c['title'], 'precio': precio, 'envio': envio, 'km': km, 'margen': round(margen),
+        out.append({'id': c['id'], 'titulo': c['title'], 'precio': precio, 'envio': envio, 'km': km, 'margen': round(margen),
                     'completo': completo, 'esp': esp, 'item': c,
                     'url': 'https://es.wallapop.com/item/' + c.get('web_slug', c['id']), 'user_id': c.get('user_id'),
                     'ciudad': (c.get('location') or {}).get('city') or ''})
     out.sort(key=lambda a: -a['margen'])
     sel = []
-    for a in out:                                      # descarta perfiles con pinta de estafa
+    for a in out[:6]:
+        c = a.pop('item')
         vv = aw.vendedor(a['user_id']) if a.get('user_id') else None
         if vv and aw.sospechoso(vv, a['precio']):
-            continue
-        # Fotos revisadas por Claude: si el anuncio no dice «completo», solo vale si se ven caja y manual
-        f = aw.analizar_fotos(a.pop('item'))
+            continue                                   # perfil con pinta de estafa
+        f = mirar_fotos(c, est)
         if f is None and not a['completo']:
             continue                                   # sin poder mirar las fotos, no se manda
         a['avisos'] = []
         if f:
             if f['descartar'] or f['completo'] == 'no' or f['version'] in ('pal_otro', 'ntsc') or f['fotos_de_internet']:
                 continue
-            if not a['completo'] and f['completo'] != 'si':
+            if f['completo'] != 'si' and not a['completo']:
                 continue
+            if f['completo'] != 'si':
+                a['avisos'].append('la descripción dice completo, pero en las fotos no se ve todo')
             if not a['esp'] and f['version'] not in ('pal_esp', 'pal_eur_multi'):
                 a['avisos'].append('no se ve si es PAL España: pide foto de la contraportada')
             a['fotos'] = f['resumen']
@@ -223,37 +269,41 @@ def e(s):
     return html.escape(str(s or ''))
 
 
-def correo(ventas, nombres, desde_txt):
-    con = [v for v in ventas if v.get('baratos')]
-    retro = [v for v in ventas if v.get('tipo')]
-    partes = [f'<p style="font-family:Arial;font-size:15px">Ventas de tus revendedores desde {e(desde_txt)}: '
-              f'<b>{len(ventas)}</b> en total, <b>{len(retro)}</b> cumplen tus criterios retro y en '
-              f'<b>{len(con)}</b> hay el mismo producto más barato en Wallapop.</p>']
-    if con:
-        partes.append('<h3 style="font-family:Arial">Más barato que lo que vendió el revendedor</h3>')
-        for v in con:
+def correo(chollos, nuevas, n_hist, n_prod):
+    partes = [f'<p style="font-family:Arial;font-size:15px">Historial de ventas de tus revendedores: <b>{n_hist}</b> ventas retro '
+              f'en los últimos {DIAS} días ({n_prod} productos distintos). En esta pasada: <b>{len(chollos)}</b> productos con '
+              f'anuncios más baratos que lo que los venden ellos y <b>{len(nuevas)}</b> ventas nuevas.</p>']
+    if chollos:
+        partes.append('<h3 style="font-family:Arial">Chollos: más baratos que lo que venden los revendedores</h3>')
+        for p in chollos:
+            ult = p['ultima']
             partes.append('<div style="font-family:Arial;border:1px solid #ddd;border-radius:8px;padding:10px;margin:8px 0">'
-                          f'<b>{e(v["titulo"])}</b> ({e(v["etiqueta"])})<br>'
-                          f'Vendido por {e(nombres.get(v["uid"], "revendedor"))} a <b>{aw.eur(v["precio"])}</b> el {e(v["fecha"])} · '
-                          f'<a href="{e(v["url"])}">ver venta</a><ul>')
-            for a in v['baratos']:
+                          f'<b>{e(ult["titulo"])}</b> ({e(ult["etiqueta"])})<br>'
+                          f'Los revendedores lo han vendido <b>{p["n"]} {"vez" if p["n"] == 1 else "veces"}</b> en {DIAS} días, '
+                          f'a <b>{aw.eur(p["ref"])}</b> de mediana (de {aw.eur(min(p["precios"]))} a {aw.eur(max(p["precios"]))}). '
+                          f'Última: {aw.eur(ult["precio"])} el {e(ult["fecha"])} por {e(ult.get("nombre") or "un revendedor")} · '
+                          f'<a href="{e(ult["url"])}">ver venta</a><ul>')
+            for a in p['baratos']:
                 entrega = 'con envío' if a['envio'] else f'solo en mano a ~{a["km"]:.0f} km'
                 partes.append(f'<li><a href="{e(a["url"])}">{e(a["titulo"])}</a> · <b>{aw.eur(a["precio"])}</b> · {entrega} · '
                               f'{e(a["ciudad"])} · margen ~{a["margen"]} € · vendedor: {e(a["vendedor"])}'
                               + (f'<br><span style="color:#555">📷 {e(a["fotos"])}</span>' if a.get('fotos') else '')
                               + ''.join(f'<br><span style="color:#b45309">⚠ {e(x)}</span>' for x in a['avisos']) + '</li>')
             partes.append('</ul></div>')
-    partes.append('<h3 style="font-family:Arial">Todas las ventas registradas</h3>'
-                  '<table style="font-family:Arial;font-size:13px;border-collapse:collapse" cellpadding="4">'
-                  '<tr style="background:#eee"><th align="left">Fecha</th><th align="left">Revendedor</th>'
-                  '<th align="left">Artículo</th><th align="right">Precio</th><th align="left">Criterios retro</th></tr>')
-    for v in sorted(ventas, key=lambda v: v['ts'], reverse=True):
-        nota = v['etiqueta'] if v.get('tipo') else v.get('motivo', '')
-        partes.append(f'<tr><td>{e(v["fecha"])}</td><td>{e(nombres.get(v["uid"], ""))}</td>'
-                      f'<td><a href="{e(v["url"])}">{e(v["titulo"])}</a></td>'
-                      f'<td align="right">{aw.eur(v["precio"]) if v["precio"] else "?"}</td><td>{e(nota)}</td></tr>')
-    partes.append('</table><p style="font-family:Arial;color:#999;font-size:12px">Bot de revendedores RetrodelNorte, cada 8 horas. '
-                  'El precio es el último que tenía el anuncio al venderse. Antes de pagar, revisa fotos, versión y vendedor.</p>')
+    if nuevas:
+        partes.append('<h3 style="font-family:Arial">Ventas nuevas de los revendedores</h3>'
+                      '<table style="font-family:Arial;font-size:13px;border-collapse:collapse" cellpadding="4">'
+                      '<tr style="background:#eee"><th align="left">Fecha</th><th align="left">Revendedor</th>'
+                      '<th align="left">Artículo</th><th align="right">Precio</th><th align="left">Criterios retro</th></tr>')
+        for v in sorted(nuevas, key=lambda v: v['ts'], reverse=True):
+            nota = v['etiqueta'] if v.get('tipo') else v.get('motivo', '')
+            partes.append(f'<tr><td>{e(v["fecha"])}</td><td>{e(v.get("nombre"))}</td>'
+                          f'<td><a href="{e(v["url"])}">{e(v["titulo"])}</a></td>'
+                          f'<td align="right">{aw.eur(v["precio"]) if v["precio"] else "?"}</td><td>{e(nota)}</td></tr>')
+        partes.append('</table>')
+    partes.append('<p style="font-family:Arial;color:#999;font-size:12px">Bot de revendedores RetrodelNorte, cada 8 horas. '
+                  'El precio de venta es el último que tenía el anuncio al venderse. Las fotos las revisa Claude; '
+                  'antes de pagar, compruébalas tú también, junto con la versión y el vendedor.</p>')
     return ''.join(partes)
 
 
@@ -275,45 +325,76 @@ def enviar(asunto, cuerpo):
         aw.etiquetar(user, pwd, m['Message-ID'])
 
 
+DIAS = int(os.environ.get('DIAS_HISTORIAL', '90'))
+
+
 def main():
     ids = ids_revendedores()
     if not ids:
         sys.exit('Falta la lista de revendedores (secreto REVENDEDORES o revendedores.txt)')
     est = cargar_estado()
     ahora = time.time()
-    desde = est.get('ultima') or ahora - float(os.environ.get('VENTANA_HORAS', '72')) * 3600
+    primera = 'historial' not in est                   # primera vez: rellena el historial hacia atrás
+    desde = ahora - DIAS * 86400 if primera else est['ultima']
     vistos = set(est.get('vistos', []))
+    historial = est.get('historial', [])
     revendedores = set(ids)
-    ventas, nombres = [], {}
+    nuevas = []
     for uid in ids:
-        nuevas = ventas_nuevas(uid, int(desde * 1000) - 3600 * 1000, vistos)   # 1 h de solape por si acaso
-        if nuevas:
-            u = aw.get_json(API + 'users/' + uid) or {}
-            nombres[uid] = u.get('micro_name') or ''
-        for x in nuevas:
+        lista = ventas_nuevas(uid, int(desde * 1000) - 3600 * 1000, vistos, paginas=25 if primera else 3)
+        nombre = ((aw.get_json(API + 'users/' + uid) or {}).get('micro_name') or '') if lista else ''
+        for x in lista:
+            vistos.add(x['item']['id'])
+            if primera and not R.plataforma(aw.nn(x['item'].get('title') or ''))[0]:
+                continue                               # al rellenar el historial, solo se piden los detalles de lo retro
             v = detalle(x)
-            v['uid'], v['ts'] = uid, x['review']['date']
-            vistos.add(v['id'])
+            v['uid'], v['ts'], v['nombre'] = uid, x['review']['date'], nombre
             if v['precio'] and v['precio'] > 2:
                 v['tipo'], v['plat'], v['etiqueta'], v['motivo'] = clasificar(v)
-                if v['tipo']:
-                    v['baratos'] = mas_baratos(v, v['tipo'], v['plat'], revendedores)
-                    time.sleep(0.4)
             else:
                 v['tipo'], v['motivo'] = None, 'sin precio (anuncio a 0-1 €)'
-            ventas.append(v)
+            if v['tipo']:
+                v['clave'] = clave_producto(v['tipo'], v['plat'], v['titulo'])
+                if v['clave']:
+                    historial.append({k: v[k] for k in ('id', 'titulo', 'precio', 'ts', 'fecha', 'nombre', 'tipo', 'plat',
+                                                         'etiqueta', 'clave', 'url')})
+            if not primera:
+                nuevas.append(v)
             time.sleep(0.3)
         time.sleep(0.4)
-    print(f'revendedores: {len(ids)} · ventas nuevas: {len(ventas)} · retro: {sum(1 for v in ventas if v.get("tipo"))} · '
-          f'con más baratos: {sum(1 for v in ventas if v.get("baratos"))}')
-    desde_txt = time.strftime('%d/%m %H:%M', time.localtime(desde))
-    if ventas:
-        n = sum(1 for v in ventas if v.get('baratos'))
-        asunto = f'Revendedores Wallapop: {len(ventas)} ventas' + (f', {n} con el mismo producto más barato' if n else '')
-        enviar(asunto, correo(ventas, nombres, desde_txt))
+    historial = [h for h in historial if h['ts'] >= (ahora - DIAS * 86400) * 1000]
+    est['historial'] = historial
+    # Productos del historial: referencia = mediana de lo que han vendido los revendedores
+    grupos = {}
+    for h in historial:
+        k = clave_producto(h['tipo'], h['plat'], h['titulo'])     # se recalcula: así los ajustes valen para lo ya guardado
+        if k:
+            grupos.setdefault(k, []).append(h)
+    chollos = []
+    for clave, hs in grupos.items():
+        hs.sort(key=lambda h: h['ts'])
+        precios = [h['precio'] for h in hs]
+        ref = statistics.median(precios)
+        ult = hs[-1]
+        rep = {'titulo': ult['titulo'], 'precio': ref}
+        baratos = mas_baratos(rep, ult['tipo'], ult['plat'], revendedores, est)
+        if baratos:
+            for a in baratos:
+                est['enviados'][a['id']] = a['precio']
+            chollos.append({'ultima': ult, 'n': len(hs), 'ref': ref, 'precios': precios, 'baratos': baratos})
+        time.sleep(0.4)
+    chollos.sort(key=lambda p: -max(a['margen'] for a in p['baratos']))
+    print(f'revendedores: {len(ids)} · ventas nuevas: {len(nuevas)} · historial retro: {len(historial)} '
+          f'({len(grupos)} productos) · productos con chollos: {len(chollos)}')
+    if chollos or nuevas:
+        asunto = 'Revendedores Wallapop: ' + (f'{len(chollos)} chollos' if chollos else 'sin chollos') + \
+                 (f', {len(nuevas)} ventas nuevas' if nuevas else '')
+        enviar(asunto, correo(chollos, nuevas, len(historial), len(grupos)))
     else:
-        print('Sin ventas nuevas: no se envía correo')
-    json.dump({'ultima': ahora, 'vistos': list(vistos)[-20000:]}, open(ESTADO, 'w'))
+        print('Nada nuevo: no se envía correo')
+    est['ultima'], est['vistos'] = ahora, list(vistos)[-30000:]
+    est['fotos'] = dict(list(est.get('fotos', {}).items())[-3000:])
+    json.dump(est, open(ESTADO, 'w'))
 
 
 if __name__ == '__main__':
