@@ -188,9 +188,8 @@ def mas_baratos(v, tipo, plat, revendedores):
             continue
         if any(o['titulo'] == c['title'] and o['precio'] == c['price']['amount'] for o in out):
             continue                                   # el mismo anuncio resubido
-        avisos = ([] if completo else ['no dice completo: mira en las fotos caja y manual']) + \
-                 ([] if esp else ['no dice PAL España: compruébalo en las fotos'])
-        out.append({'titulo': c['title'], 'precio': precio, 'envio': envio, 'km': km, 'margen': round(margen), 'avisos': avisos,
+        out.append({'titulo': c['title'], 'precio': precio, 'envio': envio, 'km': km, 'margen': round(margen),
+                    'completo': completo, 'esp': esp, 'item': c,
                     'url': 'https://es.wallapop.com/item/' + c.get('web_slug', c['id']), 'user_id': c.get('user_id'),
                     'ciudad': (c.get('location') or {}).get('city') or ''})
     out.sort(key=lambda a: -a['margen'])
@@ -199,7 +198,21 @@ def mas_baratos(v, tipo, plat, revendedores):
         vv = aw.vendedor(a['user_id']) if a.get('user_id') else None
         if vv and aw.sospechoso(vv, a['precio']):
             continue
-        a['vendedor'] = ', '.join(vv['rojas']) if vv and vv['rojas'] else 'sin señales raras'
+        # Fotos revisadas por Claude: si el anuncio no dice «completo», solo vale si se ven caja y manual
+        f = aw.analizar_fotos(a.pop('item'))
+        if f is None and not a['completo']:
+            continue                                   # sin poder mirar las fotos, no se manda
+        a['avisos'] = []
+        if f:
+            if f['descartar'] or f['completo'] == 'no' or f['version'] in ('pal_otro', 'ntsc') or f['fotos_de_internet']:
+                continue
+            if not a['completo'] and f['completo'] != 'si':
+                continue
+            if not a['esp'] and f['version'] not in ('pal_esp', 'pal_eur_multi'):
+                a['avisos'].append('no se ve si es PAL España: pide foto de la contraportada')
+            a['fotos'] = f['resumen']
+        vv = vv or {'rojas': []}
+        a['vendedor'] = ', '.join(vv['rojas']) if vv['rojas'] else 'sin señales raras'
         sel.append(a)
         if len(sel) == 3:
             break
@@ -227,6 +240,7 @@ def correo(ventas, nombres, desde_txt):
                 entrega = 'con envío' if a['envio'] else f'solo en mano a ~{a["km"]:.0f} km'
                 partes.append(f'<li><a href="{e(a["url"])}">{e(a["titulo"])}</a> · <b>{aw.eur(a["precio"])}</b> · {entrega} · '
                               f'{e(a["ciudad"])} · margen ~{a["margen"]} € · vendedor: {e(a["vendedor"])}'
+                              + (f'<br><span style="color:#555">📷 {e(a["fotos"])}</span>' if a.get('fotos') else '')
                               + ''.join(f'<br><span style="color:#b45309">⚠ {e(x)}</span>' for x in a['avisos']) + '</li>')
             partes.append('</ul></div>')
     partes.append('<h3 style="font-family:Arial">Todas las ventas registradas</h3>'

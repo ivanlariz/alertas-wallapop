@@ -21,8 +21,11 @@ jobs:
           path: .revendedores_estado.json
           key: revendedores-estado-${{ github.run_id }}
           restore-keys: revendedores-estado-
+      - name: Preparar el análisis de fotos
+        run: pip install -q anthropic
       - name: Mirar las ventas de los revendedores y buscar más barato
         env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           REVENDEDORES: ${{ secrets.REVENDEDORES }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
