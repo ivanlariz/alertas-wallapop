@@ -82,6 +82,31 @@ def detalle(x):
             'img': ((it.get('image') or {}).get('medium')) or ''}
 
 
+# Plataformas de este bot: las retro de Iván más Wii, Wii U, Nintendo DS y Xbox (original y 360), que le interesan
+# para revender lo que venden los revendedores (23/11). Wii U antes que Wii; DS no incluye 3DS/2DS.
+EXTRA = [
+    ('wiiu', 'Wii U', r' (wii u|wiiu) ', ['wii u']),
+    ('wii', 'Wii', r' (wii|nintendo wii) ', ['wii']),
+    ('ds', 'Nintendo DS', r' (nds|nintendo ds|ds lite|dsi|ds) ', ['nintendo ds']),
+    ('xbox', 'Xbox', r' (xbox 360|xbox360|x360|xbox) ', ['xbox 360', 'xbox']),
+]
+PLATAFORMAS = R.PLATAFORMAS + EXTRA
+OTRAS_NO = r' (ps3|ps4|ps5|switch|gamecube|game cube|3ds|2ds|master system|game gear|genesis|xbox one|xbox series|series x|series s) '
+ACCESORIOS = (r' (fuente|fuentes|alimentacion|transformador|mando|mandos|cable|cables|cargador|adaptador|memory|tarjeta|'
+              r'funda|bolsa|estuche|carcasa|soporte|sensor|volante|nunchuk|wiimote|stylus|lapiz|bateria|pila|pilas|kinect) ')
+
+
+def plataforma(t):
+    for clave, nombre, rx, _ in PLATAFORMAS:
+        if re.search(rx, t):
+            return clave, nombre
+    return None, None
+
+
+def consulta_plat(plat):
+    return next(qs[0] for c, _, _, qs in PLATAFORMAS if c == plat)
+
+
 RESTO_CONSOLA = set('nintendo sony sega consola console portatil caja original originales completa completo con en su y de la el '
                    'instrucciones manual cargador funda edicion color colour pocket advance sp classic clasica negra negro blanca '
                    'blanco azul roja rojo verde amarilla amarillo morada transparente plata plateada gris rosa'.split())
@@ -110,9 +135,11 @@ def clasificar(v):
     raw = v['titulo'] + ' ' + v['desc']
     t, full = aw.nn(v['titulo']), aw.nn(raw)
     # Solo el título: las descripciones de los revendedores llevan listas de etiquetas de todas las consolas
-    plat, nombre = R.plataforma(t)
-    if not plat or re.search(r' (ps3|ps4|ps5|xbox|switch|wii|nes|gamecube|3ds|2ds|nds|master system|game gear) ', t):
-        return None, None, None, 'no es de tus plataformas retro'
+    plat, nombre = plataforma(t)
+    if not plat or re.search(OTRAS_NO, t):
+        return None, None, None, 'no es de tus plataformas'
+    if re.search(ACCESORIOS, t):
+        return None, plat, None, 'accesorio'
     if re.search(R.EXCLUIR_TITULO, t) or re.search(R.EXCLUIR_TEXTO, full):
         return None, plat, None, 'lote, repro o accesorio'
     if re.search(R.INCOMPLETO, full):
@@ -135,7 +162,7 @@ def clasificar(v):
 
 GENERICAS = R.PALABRAS_VACIAS | set('''the of and le la saturn sega ss gb gbc version versio pal espana spain spanish edition
     edicion clasico classic retro coleccion coleccionista impecable excelente nuevo nueva completo completa caja manual
-    instrucciones mapa poster registro tarjeta inserto inlay jap europa europeo europea hedgehog jogo videojogo erbe
+    instrucciones mapa poster wii wiiu xbox x360 nds dsi lite limitada especial registro tarjeta inserto inlay jap europa europeo europea hedgehog jogo videojogo erbe
     konami capcom nintendo ubisoft electronic arts ea namco tecmo sunsoft acclaim activision midway thq'''.split())
 MARCAS = set('erbe konami capcom nintendo sega sony ubisoft electronic arts ea namco tecmo sunsoft acclaim activision midway thq'.split())
 
@@ -183,7 +210,7 @@ def mas_baratos(v, tipo, plat, revendedores, est):
         claves = list(dict.fromkeys(palabras(v['titulo'])))
         if not [w for w in claves if w not in MARCAS] or venta < 25:
             return []
-        consulta = ' '.join(claves[:6]) + ' ' + next(qs[0] for c, _, _, qs in R.PLATAFORMAS if c == plat)
+        consulta = ' '.join(claves[:6]) + ' ' + consulta_plat(plat)
     q = {'keywords': consulta, 'latitude': aw.LAT, 'longitude': aw.LON, 'source': 'search_box',
          'category_ids': '24200', 'subcategory_ids': tipo, 'order_by': 'price_low_to_high',
          'min_sale_price': max(3, int(venta * 0.15)), 'max_sale_price': int(venta)}
@@ -200,13 +227,13 @@ def mas_baratos(v, tipo, plat, revendedores, est):
             continue
         if claves and [w for w in palabras(c['title']) if w not in claves and len(w) >= 4]:
             continue                                   # otro juego: Top Gear Rally ≠ Top Gear, Paper Mario ≠ Super Mario
-        if re.search(r' (ps3|ps4|ps5|xbox|switch|wii|nes|gamecube|3ds|2ds|nds|ds|master system|game gear|genesis) ', t):
+        if re.search(OTRAS_NO, t) or re.search(ACCESORIOS, t):
             continue
         if numeros(t) != numeros(aw.nn(v['titulo'])):
             continue                                   # Mega Games 2 ≠ Mega Games I, Sonic Adventure ≠ Sonic Adventure 2
         if re.search(r' (trial|demo|promo|promocional|not for resale) ', full):
             continue
-        if R.plataforma(t)[0] != plat:
+        if plataforma(t)[0] != plat:
             continue                                   # la plataforma tiene que estar en el título
         if modelo and ((R.modelo_consola(t, plat) or (None,))[0] != modelo[0] or not es_consola_portatil(t, plat)):
             continue
@@ -270,7 +297,7 @@ def e(s):
 
 
 def correo(chollos, nuevas, n_hist, n_prod):
-    partes = [f'<p style="font-family:Arial;font-size:15px">Historial de ventas de tus revendedores: <b>{n_hist}</b> ventas retro '
+    partes = [f'<p style="font-family:Arial;font-size:15px">Historial de ventas de tus revendedores: <b>{n_hist}</b> ventas '
               f'en los últimos {DIAS} días ({n_prod} productos distintos). En esta pasada: <b>{len(chollos)}</b> productos con '
               f'anuncios más baratos que lo que los venden ellos y <b>{len(nuevas)}</b> ventas nuevas.</p>']
     if chollos:
@@ -326,6 +353,7 @@ def enviar(asunto, cuerpo):
 
 
 DIAS = int(os.environ.get('DIAS_HISTORIAL', '90'))
+VERSION = 2                                             # súbelo si cambian las plataformas: rehace el historial
 
 
 def main():
@@ -334,10 +362,10 @@ def main():
         sys.exit('Falta la lista de revendedores (secreto REVENDEDORES o revendedores.txt)')
     est = cargar_estado()
     ahora = time.time()
-    primera = 'historial' not in est                   # primera vez: rellena el historial hacia atrás
+    primera = est.get('version') != VERSION            # primera vez (o plataformas nuevas): rellena el historial hacia atrás
     desde = ahora - DIAS * 86400 if primera else est['ultima']
-    vistos = set(est.get('vistos', []))
-    historial = est.get('historial', [])
+    vistos = set() if primera else set(est.get('vistos', []))
+    historial = [] if primera else est.get('historial', [])
     revendedores = set(ids)
     nuevas = []
     for uid in ids:
@@ -345,7 +373,7 @@ def main():
         nombre = ((aw.get_json(API + 'users/' + uid) or {}).get('micro_name') or '') if lista else ''
         for x in lista:
             vistos.add(x['item']['id'])
-            if primera and not R.plataforma(aw.nn(x['item'].get('title') or ''))[0]:
+            if primera and not plataforma(aw.nn(x['item'].get('title') or ''))[0]:
                 continue                               # al rellenar el historial, solo se piden los detalles de lo retro
             v = detalle(x)
             v['uid'], v['ts'], v['nombre'] = uid, x['review']['date'], nombre
@@ -392,7 +420,7 @@ def main():
         enviar(asunto, correo(chollos, nuevas, len(historial), len(grupos)))
     else:
         print('Nada nuevo: no se envía correo')
-    est['ultima'], est['vistos'] = ahora, list(vistos)[-30000:]
+    est['ultima'], est['vistos'], est['version'] = ahora, list(vistos)[-30000:], VERSION
     est['fotos'] = dict(list(est.get('fotos', {}).items())[-3000:])
     json.dump(est, open(ESTADO, 'w'))
 
